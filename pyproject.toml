@@ -1,0 +1,24 @@
+[project]
+name = "sudodev"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "akshitguptaa",email = "akshitguptaa29@gmail.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+]
+
+[dependency-groups]
+dev = [
+    "docker (>=7.1.0,<8.0.0)",
+    "groq (>=0.37.1,<0.38.0)",
+    "datasets (>=4.4.1,<5.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
