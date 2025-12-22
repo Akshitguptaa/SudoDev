@@ -12,11 +12,11 @@ class LLMClient:
         self.client = Groq(api_key=api_key)
         self.model = "llama-3.3-70b-versatile"
 
-    def get_completion(self, system_prompt: str, user_prompt: str, temperature: float = 0.2, max_tokens: int = 4096, converstation_history: list = None) -> str:
+    def get_completion(self, system_prompt: str, user_prompt: str, temperature: float = 0.2, max_tokens: int = 4096, conversation_history: list = None) -> str:
         try:
             messages = [{"role": "system", "content": system_prompt}]
-            if converstation_history:
-                messages.extend(converstation_history)
+            if conversation_history:
+                messages.extend(conversation_history)
             messages.append({"role": "user", "content": user_prompt})
 
             logger.info(f"sending request to {self.model} (temp = {temperature}, max_tokens = {max_tokens})")
