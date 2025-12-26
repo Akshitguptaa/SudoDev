@@ -1,8 +1,8 @@
 import re
-from sudodev.client import LLMClient
-from sudodev.sandbox.container import Sandbox
-from sudodev.utils.logger import log_step, log_success, log_error, setup_logger
-from sudodev.tools import (
+from sudodev.core.client import LLMClient
+from sudodev.runtime.container import Sandbox
+from sudodev.core.utils.logger import log_step, log_success, log_error, setup_logger
+from sudodev.core.tools import (
     build_reproduce_prompt,
     build_fix_prompt,
     extract_python_code,
@@ -11,7 +11,7 @@ from sudodev.tools import (
     extract_error_messages,
     create_diff_patch
 )
-import sudodev.config as config
+import sudodev.runtime.config as config
 
 logger = setup_logger(__name__)
 

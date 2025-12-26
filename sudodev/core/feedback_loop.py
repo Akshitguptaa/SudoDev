@@ -1,6 +1,6 @@
 from typing import List, Dict, Tuple, Optional
 import time
-from sudodev.utils.logger import log_step, log_success, log_error, setup_logger
+from sudodev.core.utils.logger import log_step, log_success, log_error, setup_logger
 logger = setup_logger(__name__)
 
 class FeedbackLoop:

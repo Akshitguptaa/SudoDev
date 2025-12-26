@@ -1,6 +1,6 @@
 import os
 from groq import Groq
-from sudodev.utils.logger import setup_logger
+from sudodev.core.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

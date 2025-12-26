@@ -1,8 +1,8 @@
 import re
-from sudodev.client import LLMClient
-from sudodev.sandbox.container import Sandbox
-from sudodev.utils.logger import log_step, log_success, log_error, setup_logger
-from sudodev.tools import (
+from sudodev.core.client import LLMClient
+from sudodev.runtime.container import Sandbox
+from sudodev.core.utils.logger import log_step, log_success, log_error, setup_logger
+from sudodev.core.tools import (
     extract_python_code,
     extract_file_paths,
     validate_python_code,
@@ -10,9 +10,9 @@ from sudodev.tools import (
     create_diff_patch
 )
 
-from sudodev.context_search import ContextSearch
-from sudodev.feedback_loop import FeedbackLoop
-from sudodev.improved_prompts import (
+from sudodev.core.context_search import ContextSearch
+from sudodev.core.feedback_loop import FeedbackLoop
+from sudodev.core.prompts import (
     build_improved_reproduce_prompt,
     build_improved_fix_prompt,
     build_improved_locate_prompt

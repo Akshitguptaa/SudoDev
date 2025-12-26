@@ -1,7 +1,7 @@
 import ast
 import re
 from typing import List, Dict, Tuple, Optional
-from sudodev.utils.logger import setup_logger
+from sudodev.core.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

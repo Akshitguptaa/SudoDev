@@ -2,7 +2,7 @@ import docker
 import tarfile
 import io
 import time
-from sudodev.utils.logger import setup_logger
+from sudodev.core.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
