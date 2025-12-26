@@ -2,8 +2,6 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -12,10 +10,10 @@ def test_imports():
     print("Testing imports...")
     
     try:
-        from sudodev.agent import Agent
-        from sudodev.client import LLMClient
-        from sudodev.sandbox.container import Sandbox
-        from sudodev.tools import (
+        from sudodev.core.agent import Agent
+        from sudodev.core.client import LLMClient
+        from sudodev.runtime.container import Sandbox
+        from sudodev.core.tools import (
             extract_python_code,
             build_reproduce_prompt,
             build_fix_prompt,
@@ -36,7 +34,7 @@ def test_llm_client():
         return False
     
     try:
-        from sudodev.client import LLMClient
+        from sudodev.core.client import LLMClient
         client = LLMClient()
         
         response = client.get_completion(
@@ -60,7 +58,7 @@ def test_llm_client():
 def test_tools():
     print("\nTesting tools...")
     
-    from sudodev.tools import (
+    from sudodev.core.tools import (
         extract_python_code,
         validate_python_code,
         extract_file_paths,
@@ -128,7 +126,7 @@ def test_sandbox():
     print("\nTesting sandbox...")
     
     try:
-        from sudodev.sandbox.container import Sandbox
+        from sudodev.runtime.container import Sandbox
         
         test_instance = "django__django-11001"
         sandbox = Sandbox(test_instance)
@@ -161,7 +159,7 @@ def test_agent_minimal():
     print("\nTesting agent initialization...")
     
     try:
-        from sudodev.agent import Agent
+        from sudodev.core.agent import Agent
         
         issue = {
             'instance_id': 'test_instance',
@@ -187,8 +185,8 @@ def test_end_to_end():
     
     try:
         from datasets import load_dataset
-        from sudodev.agent import Agent
-        from sudodev.improved_agent import ImprovedAgent
+        from sudodev.core.agent import Agent
+        from sudodev.core.core.improved_agent import ImprovedAgent
         
         print("\nLoading SWE-bench dataset...")
         dataset = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
