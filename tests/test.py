@@ -188,6 +188,7 @@ def test_end_to_end():
     try:
         from datasets import load_dataset
         from sudodev.agent import Agent
+        from sudodev.improved_agent import ImprovedAgent
         
         print("\nLoading SWE-bench dataset...")
         dataset = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
@@ -204,7 +205,7 @@ def test_end_to_end():
         print(f"Issue: {issue['problem_statement'][:100]}...")
         
         print("\nRunning agent...")
-        agent = Agent(issue)
+        agent = ImprovedAgent(issue)
         success = agent.run()
         
         if success:

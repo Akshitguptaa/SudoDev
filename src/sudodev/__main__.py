@@ -3,6 +3,7 @@ import sys
 from dotenv import load_dotenv
 from datasets import load_dataset
 from sudodev.agent import Agent
+from sudodev.improved_agent import ImprovedAgent
 from sudodev.utils.logger import setup_logger
 
 def main():
@@ -24,8 +25,13 @@ def main():
         sys.exit(1)
 
     logger.info(f"Starting agent on {instance_id}")
-    agent = Agent(issue)
-    agent.run()
+    agent = ImprovedAgent(issue)
+    success = agent.run()
+
+    if success:
+        logger.info("Agent completed successfully")
+    else:
+        logger.error("Agent failed to resolve issue")
 
 if __name__ == "__main__":
     main()
