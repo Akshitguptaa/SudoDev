@@ -16,6 +16,16 @@ const steps = [
 
 type InputMode = "swebench" | "github" | null;
 
+function extractRepoUrl(issueUrl: string): string {
+  const match = issueUrl.match(
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/\d+/
+  );
+  if (match) {
+    return `https://github.com/${match[1]}/${match[2]}`;
+  }
+  return "";
+}
+
 export default function Home() {
   const [view, setView] = useState("input");
   const [mode, setMode] = useState<InputMode>(null);
@@ -26,7 +36,7 @@ export default function Home() {
   const [runId, setRunId] = useState("");
   const [status, setStatus] = useState("idle");
   const [currentStep, setCurrentStep] = useState(0);
-  const [logs, setLogs] = useState([]);
+  const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [patch, setPatch] = useState("");
 
@@ -78,9 +88,53 @@ export default function Home() {
     setStatus("pending");
 
     try {
+      // For SWE-bench mode, check if Docker image exists first
+      if (mode === "swebench" && instanceId) {
+        setLogs(["Checking Docker image status..."]);
+        const dockerStatus = await fetch(`http://localhost:8000/api/docker/status/${instanceId}`);
+        const dockerData = await dockerStatus.json();
+
+        if (!dockerData.image_exists) {
+          const confirmBuild = confirm(
+            `Docker image for "${instanceId}" is not available.\n\n` +
+            `Would you like to build it now? This process is fully automated but may take 5-10 minutes.\n\n` +
+            `Click OK to build, or Cancel to abort.`
+          );
+
+          if (confirmBuild) {
+            setStatus("building");
+            setView("hud");
+            setLogs(["Building Docker image... This may take 5-10 minutes.", "Please wait..."]);
+
+            // Build synchronously 
+            const buildResponse = await fetch(`http://localhost:8000/api/docker/build/${instanceId}`, {
+              method: "POST"
+            });
+            const buildResult = await buildResponse.json();
+
+            if (!buildResult.success) {
+              // If automatic build fails, suggest manual fallback
+              const command = `./build_image.sh ${instanceId}`;
+              prompt(
+                `Automatic build failed: ${buildResult.message}\n` +
+                `You can try building manually with this script:\n`,
+                command
+              );
+              throw new Error(buildResult.message || "Docker build failed");
+            }
+
+            setLogs(prev => [...prev, "Docker image built successfully! Starting agent..."]);
+          } else {
+            setLoading(false);
+            setStatus("idle");
+            return;
+          }
+        }
+      }
+
       // Prepare request based on mode
       let requestBody;
-      
+
       if (mode === "github") {
         requestBody = {
           mode: "github",
@@ -126,7 +180,7 @@ export default function Home() {
     } catch (error) {
       console.error("Error starting agent:", error);
       setStatus("failed");
-      
+
       let errorMessage = "Failed to start agent. ";
       if (error instanceof Error) {
         errorMessage += error.message;
@@ -134,7 +188,7 @@ export default function Home() {
         errorMessage += "Unknown error occurred";
       }
       errorMessage += "\n\nMake sure the backend is running on port 8000.";
-      
+
       alert(errorMessage);
     } finally {
       setLoading(false);

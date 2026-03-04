@@ -12,6 +12,8 @@ COPY sudodev ./sudodev
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir fastapi uvicorn[standard] websockets pydantic
 
+RUN pip install --no-cache-dir swebench
+
 RUN mkdir -p /app/cache/swebench
 
 EXPOSE 8000

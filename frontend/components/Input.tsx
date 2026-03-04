@@ -2,7 +2,6 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { Rocket, Loader2, Github, Database } from "lucide-react";
-import { useState } from "react";
 
 type InputMode = "swebench" | "github" | null;
 
@@ -140,20 +139,6 @@ export default function Input({
                                     <>
                                         <div>
                                             <label className="text-xs font-mono text-zinc-500 uppercase tracking-wider mb-2 block">
-                                                GitHub Repository URL
-                                            </label>
-                                            <input
-                                                type="url"
-                                                value={githubRepoUrl}
-                                                onChange={(e) => setGithubRepoUrl(e.target.value)}
-                                                placeholder="https://github.com/owner/repo"
-                                                required
-                                                className="w-full bg-black/50 border border-zinc-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-zinc-200 font-mono text-sm rounded px-3 py-2 outline-none transition-colors"
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <label className="text-xs font-mono text-zinc-500 uppercase tracking-wider mb-2 block">
                                                 GitHub Issue URL
                                             </label>
                                             <input
@@ -164,6 +149,25 @@ export default function Input({
                                                 required
                                                 className="w-full bg-black/50 border border-zinc-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-zinc-200 font-mono text-sm rounded px-3 py-2 outline-none transition-colors"
                                             />
+                                            <p className="text-xs text-zinc-600 mt-2">
+                                                Repository URL is auto-extracted from the issue URL
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-xs font-mono text-zinc-500 uppercase tracking-wider mb-2 block">
+                                                Repository URL (Optional)
+                                            </label>
+                                            <input
+                                                type="url"
+                                                value={githubRepoUrl}
+                                                onChange={(e) => setGithubRepoUrl(e.target.value)}
+                                                placeholder="https://github.com/owner/repo"
+                                                className="w-full bg-black/50 border border-zinc-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-zinc-200 font-mono text-sm rounded px-3 py-2 outline-none transition-colors"
+                                            />
+                                            <p className="text-xs text-zinc-600 mt-2">
+                                                Override if repo URL differs from issue URL
+                                            </p>
                                         </div>
                                     </>
                                 )}
@@ -173,7 +177,7 @@ export default function Input({
                                         Additional Context (Optional)
                                     </label>
                                     <p className="text-xs text-zinc-600 mb-2">
-                                        {mode === "swebench" 
+                                        {mode === "swebench"
                                             ? "Issue descriptions are loaded from SWE-bench. Add extra context here if needed."
                                             : "Provide additional context or specific instructions for the agent."
                                         }
