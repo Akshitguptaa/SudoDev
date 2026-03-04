@@ -18,9 +18,9 @@ class GitHubSandbox:
         self.image_name = f"sudodev-github-{self.repo_name}:latest"
         
     def _extract_repo_name(self, url: str) -> str:
-        """Extract repo name from GitHub URL"""
-        # https://github.com/user/repo.git -> user-repo
-        parts = url.rstrip('/').rstrip('.git').split('/')
+        parts = url.rstrip('/').split('/')
+        if parts[-1].endswith('.git'):
+            parts[-1] = parts[-1][:-4]
         return f"{parts[-2]}-{parts[-1]}".lower()
     
     def build_image(self):
@@ -34,7 +34,13 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y \\
     git \\
     build-essential \\
+    curl \\
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
+    && apt-get install -y nodejs \\
+    && rm -rf /var/lib/apt/lists/* \\
+    || echo "Node.js install skipped"
 
 WORKDIR /testbed
 
@@ -42,9 +48,10 @@ WORKDIR /testbed
 RUN git clone --depth 1 --branch {self.branch} {self.github_url} /testbed
 
 # Install dependencies in order of priority
-RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt || true; fi
-RUN if [ -f setup.py ]; then pip install --no-cache-dir -e . || true; fi
-RUN if [ -f pyproject.toml ]; then pip install --no-cache-dir -e . || true; fi
+RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt 2>&1 || true; fi
+RUN if [ -f setup.py ]; then pip install --no-cache-dir -e . 2>&1 || true; fi
+RUN if [ -f pyproject.toml ]; then pip install --no-cache-dir -e . 2>&1 || true; fi
+RUN if [ -f package.json ]; then npm install 2>&1 || true; fi
 
 CMD ["/bin/bash"]
 """
@@ -117,7 +124,7 @@ CMD ["/bin/bash"]
         
         try:
             exec_result = self.container.exec_run(
-                wrapped_cmd,
+                ["/bin/bash", "-c", cmd],
                 workdir="/testbed"
             )
             output = exec_result.output.decode('utf-8', errors='replace')

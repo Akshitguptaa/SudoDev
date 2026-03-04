@@ -16,7 +16,7 @@ class UnifiedAgent:
         elif mode == "github":
             github_url = kwargs['github_url']
             branch = kwargs.get('branch', 'main')
-            issue_description = kwargs['issue_description']
+            issue_description = kwargs.get('issue_description', '')
             repo_name = kwargs.get('repo_name', 'custom')
 
             self.issue = {

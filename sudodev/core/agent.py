@@ -5,13 +5,13 @@ from sudodev.core.utils.logger import log_step, log_success, log_error, setup_lo
 from sudodev.core.tools import (
     build_reproduce_prompt,
     build_fix_prompt,
+    build_locate_files_prompt,
     extract_python_code,
     extract_file_paths,
     validate_python_code,
     extract_error_messages,
     create_diff_patch
 )
-import sudodev.runtime.config as config
 
 logger = setup_logger(__name__)
 
@@ -30,7 +30,7 @@ class Agent:
         self.llm = LLMClient()
         self.sandbox = Sandbox(issue_data['instance_id'])
         self.repro_script = "reproduce_issue.py"
-        self.repro_output = "" 
+        self.repro_output = ""
         self.target_files = []
 
     def run(self):
@@ -129,8 +129,7 @@ class Agent:
             return True
         
         file_tree = self._get_file_tree(max_files=150)
-        
-        from sudodev.tools import build_locate_files_prompt
+
         prompt = build_locate_files_prompt(
             issue=self.issue['problem_statement'],
             repo_structure=file_tree
@@ -163,7 +162,6 @@ class Agent:
             MAX_FILE_CHARS = 32000
             if len(original_content) > MAX_FILE_CHARS:
                 log_error(f"File {filepath} too large ({len(original_content)} chars, max {MAX_FILE_CHARS})")
-                log_error("Skipping this file. Consider implementing chunking or using a different strategy.")
                 continue
             
             prompt = build_fix_prompt(
@@ -174,7 +172,6 @@ class Agent:
             )
             
             response = self.llm.get_completion(SYSTEM_PROMPT, prompt, temperature=0.2, max_tokens=8192)
-            
             fixed_code = extract_python_code(response)
             
             if not fixed_code:

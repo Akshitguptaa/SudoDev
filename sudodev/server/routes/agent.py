@@ -4,9 +4,8 @@ from typing import Dict
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from sudodev.server.models import (
     AgentRunRequest,
-    AgentRunResponse, 
+    AgentRunResponse,
     AgentStatusResponse,
-    AgentStatus
 )
 from sudodev.core.improved_agent import ImprovedAgent
 
@@ -19,7 +18,7 @@ agent_runs: Dict[str, Dict] = {}
 def run_agent_task(run_id: str, issue_data: Dict):
     """Background task to run the agent."""
     try:
-        agent_runs[run_id]["status"] = AgentStatus.RUNNING
+        agent_runs[run_id]["status"] = "running"
         agent_runs[run_id]["started_at"] = datetime.now().isoformat()
         
         # Run the agent
@@ -28,16 +27,16 @@ def run_agent_task(run_id: str, issue_data: Dict):
         
         # Update status
         if success:
-            agent_runs[run_id]["status"] = AgentStatus.COMPLETED
+            agent_runs[run_id]["status"] = "completed"
             agent_runs[run_id]["output"] = {"success": True}
         else:
-            agent_runs[run_id]["status"] = AgentStatus.FAILED
+            agent_runs[run_id]["status"] = "failed"
             agent_runs[run_id]["error"] = "Agent failed to generate a fix"
         
         agent_runs[run_id]["completed_at"] = datetime.now().isoformat()
             
     except Exception as e:
-        agent_runs[run_id]["status"] = AgentStatus.FAILED
+        agent_runs[run_id]["status"] = "failed"
         agent_runs[run_id]["error"] = str(e)
         agent_runs[run_id]["completed_at"] = datetime.now().isoformat()
 
@@ -49,13 +48,12 @@ async def run_agent(request: AgentRunRequest, background_tasks: BackgroundTasks)
     
     issue_data = {
         "instance_id": request.instance_id,
-        "problem_statement": request.problem_statement,
-        "repo_url": request.repo_url
+        "problem_statement": request.problem_statement or request.issue_description,
     }
     
     agent_runs[run_id] = {
         "run_id": run_id,
-        "status": AgentStatus.PENDING,
+        "status": "pending",
         "issue_data": issue_data,
         "created_at": datetime.now().isoformat()
     }
@@ -64,7 +62,7 @@ async def run_agent(request: AgentRunRequest, background_tasks: BackgroundTasks)
     
     return AgentRunResponse(
         run_id=run_id,
-        status=AgentStatus.PENDING,
+        status="pending",
         message="Agent run started"
     )
 
@@ -79,9 +77,10 @@ async def get_status(run_id: str):
     return AgentStatusResponse(
         run_id=run_id,
         status=run["status"],
-        progress=run.get("progress"),
-        output=run.get("output"),
-        error=run.get("error")
+        message=run.get("error"),
+        logs=run.get("logs", []),
+        current_step=run.get("current_step", 0),
+        patch=run.get("patch", "")
     )
 
 
@@ -93,7 +92,7 @@ async def list_runs():
             {
                 "run_id": run_id,
                 "status": run["status"],
-                "instance_id": run["issue_data"]["instance_id"],
+                "instance_id": run["issue_data"].get("instance_id"),
                 "created_at": run["created_at"]
             }
             for run_id, run in agent_runs.items()

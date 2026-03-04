@@ -1,6 +1,8 @@
-from typing import List, Dict, Tuple, Optional
+import re
 import time
+from typing import List, Dict, Tuple, Optional
 from sudodev.core.utils.logger import log_step, log_success, log_error, setup_logger
+
 logger = setup_logger(__name__)
 
 class FeedbackLoop:
@@ -45,7 +47,6 @@ class FeedbackLoop:
         ]
         
         for pattern, error_category in error_patterns:
-            import re
             match = re.search(pattern, error_output)
             if match:
                 if error_category == 'exception':
@@ -72,20 +73,21 @@ class FeedbackLoop:
         """Generate suggestions based on error analysis"""
         suggestions = []
         error_type = analysis.get('error_type', '')
-        
-        if error_type == 'NameError':
-            suggestions.append("Check for undefined variables or missing imports")
-        elif error_type == 'AttributeError':
-            suggestions.append("Verify object has the expected attributes/methods")
-        elif error_type == 'TypeError':
-            suggestions.append("Check function arguments and type compatibility")
-        elif error_type == 'ImportError' or error_type == 'ModuleNotFoundError':
-            suggestions.append("Verify import paths and module availability")
-        elif error_type == 'SyntaxError':
-            suggestions.append("Review code syntax and indentation")
-        elif error_type == 'AssertionError':
-            suggestions.append("The fix didn't achieve expected behavior - review logic")
-        elif 'Django' in analysis.get('error_message', ''):
+
+        suggestion_map = {
+            'NameError': "Check for undefined variables or missing imports",
+            'AttributeError': "Verify object has the expected attributes/methods",
+            'TypeError': "Check function arguments and type compatibility",
+            'ImportError': "Verify import paths and module availability",
+            'ModuleNotFoundError': "Verify import paths and module availability",
+            'SyntaxError': "Review code syntax and indentation",
+            'AssertionError': "The fix didn't achieve expected behavior - review logic",
+        }
+
+        if error_type in suggestion_map:
+            suggestions.append(suggestion_map[error_type])
+
+        if 'Django' in analysis.get('error_message', ''):
             suggestions.append("Ensure Django settings are properly configured")
 
         if len(self.attempts_history) > 1:
@@ -138,7 +140,7 @@ Error Analysis:
         
         if len(self.attempts_history) > 0:
             prompt += f"\n**Previous Attempts**: {len(self.attempts_history)} failed\n"
-            for i, attempt in enumerate(self.attempts_history[-2:], 1):
+            for attempt in self.attempts_history[-2:]:
                 brief_error = attempt['error_output'][:200].split('\n')[-1]
                 prompt += f"  Attempt {attempt['attempt']}: {brief_error}\n"
         

@@ -17,28 +17,47 @@ from sudodev.core.prompts import (
     build_improved_fix_prompt,
     build_improved_locate_prompt
 )
+from sudodev.core.framework_utils import (
+    get_framework_from_instance_id,
+    get_test_command,
+    detect_repo_language,
+    is_node_project,
+    build_find_command,
+    ALL_SOURCE_EXTENSIONS
+)
 
 logger = setup_logger(__name__)
 
 SYSTEM_PROMPT = """You are SudoDev, a Senior Software Engineer specializing in debugging.
-You are running inside a Linux environment with the repository checked out at /testbed.
+You are running inside a HEADLESS Linux Docker container with the repository checked out at /testbed.
+
+CRITICAL CONSTRAINTS:
+- NO display, NO GUI, NO graphical libraries (no tkinter, no pygame, no matplotlib plots)
+- Python, Node.js, and common build tools are available
+- For frontend/CSS/UI bugs, verify by reading source files programmatically
+- All test scripts must run in a headless terminal environment
 
 YOUR PROCESS:
 1. Analyze the GitHub issue carefully
 2. Create a reproduction script that demonstrates the bug
 3. Locate the relevant files using smart search
-4. Extract only relevant code sections from large files
-5. Generate fixes iteratively with error feedback
-6. Verify the fix works
-
-You learn from failures and try different approaches when needed.
+4. Generate fixes for the actual source files
+5. Verify the fix works
 """
 
 class ImprovedAgent:
     def __init__(self, issue_data):
         self.issue = issue_data
         self.llm = LLMClient()
-        self.sandbox = Sandbox(issue_data['instance_id'])
+
+        self.instance_id = issue_data.get('instance_id', 'unknown')
+        self.is_swebench = '__' in self.instance_id and not self.instance_id.startswith('github-')
+
+        if self.is_swebench:
+            self.sandbox = Sandbox(self.instance_id)
+        else:
+            self.sandbox = None
+
         self.context_search = ContextSearch(self.llm)
         self.feedback_loop = FeedbackLoop(max_attempts=3)
         
@@ -48,10 +67,21 @@ class ImprovedAgent:
         self.keywords = {}
         self.patches = []
 
+        # Detect framework from instance_id
+        self.framework = get_framework_from_instance_id(self.instance_id)
+        self.repo_language = "python"
+        self.file_tree_cache = None
+        logger.info(f"Detected framework: {self.framework}")
+
     def run(self):
-        log_step("INIT", f"Starting improved run for {self.issue['instance_id']}")
+        log_step("INIT", f"Starting run for {self.instance_id}")
         try:
             self.sandbox.start()
+
+            self.file_tree_cache = self._get_file_tree(max_files=300)
+            self.repo_language = detect_repo_language(self.file_tree_cache)
+            logger.info(f"Detected repo language: {self.repo_language}")
+
             self._extract_keywords()
 
             if not self._reproduce_bug():
@@ -86,24 +116,17 @@ class ImprovedAgent:
         log_step("ANALYZE", "Extracting keywords from the issue...")
 
         try:
-            self.keywords = self.context_search.extract_keywords_from_issue(self.issue['problem_statement'])
+            self.keywords = self.context_search.extract_keywords_from_issue(
+                self.issue['problem_statement']
+            )
             log_success(f"Extracted {sum(len(v) for v in self.keywords.values())} keywords")
         except Exception as e:
             logger.warning(f"Keyword extraction failed: {e}")
             self.keywords = {}
 
-    def _get_file_tree(self, max_files=200):
-        cmd = (
-            "find /testbed -type f -name '*.py' "
-            "! -path '*/.git/*' "
-            "! -path '*/__pycache__/*' "
-            "! -path '*/venv/*' "
-            "! -path '*/env/*' "
-            "! -name '*.pyc' "
-            f"| head -n {max_files} "
-            "| sort"
-        )
-        
+    def _get_file_tree(self, max_files=300):
+        cmd = build_find_command(max_files=max_files)
+
         exit_code, output = self.sandbox.run_command(cmd)
         if exit_code == 0:
             files = [line.replace('/testbed/', '') for line in output.strip().split('\n') if line.strip()]
@@ -119,7 +142,8 @@ class ImprovedAgent:
             filename = path.split('/')[-1]
             
             exit_code, found = self.sandbox.run_command(
-                f"find /testbed -name '{filename}' -type f | head -1"
+                f"find /testbed -name '{filename}' -type f "
+                "! -path '*/node_modules/*' ! -path '*/.git/*' | head -1"
             )
             
             if exit_code == 0 and found.strip():
@@ -130,13 +154,14 @@ class ImprovedAgent:
         return results
 
     def _reproduce_bug(self):
-        log_step("REPRODUCE", "Generating reproduction script with framework detection...")
+        log_step("REPRODUCE", "Generating reproduction script...")
 
-        file_list = self._get_file_tree(max_files=100)
+        file_list = self.file_tree_cache or self._get_file_tree(max_files=150)
 
         prompt = build_improved_reproduce_prompt(
             issue_desc=self.issue['problem_statement'],
-            repo_info=file_list[:500]
+            repo_info=file_list[:1000],
+            instance_id=self.instance_id if self.is_swebench else None
         )
         response = self.llm.get_completion(SYSTEM_PROMPT, prompt, temperature=0.3)
         code = extract_python_code(response)
@@ -150,29 +175,94 @@ class ImprovedAgent:
         log_success(f"Wrote {self.repro_script}")
 
         exit_code, output = self.sandbox.run_command(f"python {self.repro_script}", timeout=30)
-        print(f"\nReproduction output:\n{output[:1000]}")
+        print(f"\nReproduction output:\n{output[:1500]}")
 
-        if exit_code != 0 or 'AssertionError' in output or 'Error' in output:
+        if exit_code != 0:
+            if 'ImportError' in output or 'ModuleNotFoundError' in output:
+                log_error("Reproduction script has import errors, retrying...")
+                return self._reproduce_bug_retry(file_list)
+
             log_success("Bug reproduced successfully")
             self.repro_output = output
             return True
         else:
+            errors = extract_error_messages(output)
+            if errors:
+                log_success("Bug confirmed from output")
+                self.repro_output = output
+                return True
+
+            if 'bug' in output.lower() and ('found' in output.lower() or 'confirmed' in output.lower() or 'present' in output.lower()):
+                log_success("Bug confirmed from output text")
+                self.repro_output = output
+                return True
+
             log_error("Could not reproduce the bug")
             return False
-        
+
+    def _reproduce_bug_retry(self, file_list: str):
+        log_step("REPRODUCE", "Retrying reproduction with stricter constraints...")
+
+        retry_prompt = f"""The previous reproduction script FAILED because it used unsupported imports.
+
+You are in a HEADLESS Docker container. You CANNOT use:
+- tkinter, pygame, or any GUI library
+- matplotlib.pyplot.show() or any display function
+- Any library that requires a display or graphical environment
+
+Rewrite the reproduction script. For frontend/CSS/UI bugs, verify by READING SOURCE FILES:
+- Use open() to read the relevant source files
+- Use string matching or regex to check if the bug exists in the code
+- Do NOT try to render or display anything
+
+Issue:
+{self.issue['problem_statement']}
+
+Repository files:
+{file_list[:1000]}
+
+Return ONLY Python code in a ```python``` block.
+"""
+
+        response = self.llm.get_completion(SYSTEM_PROMPT, retry_prompt, temperature=0.3)
+        code = extract_python_code(response)
+
+        is_valid, error = validate_python_code(code)
+        if not is_valid:
+            log_error(f"Retry code has syntax errors: {error}")
+            return False
+
+        self.sandbox.write_file(self.repro_script, code)
+
+        exit_code, output = self.sandbox.run_command(f"python {self.repro_script}", timeout=30)
+        print(f"\nRetry reproduction output:\n{output[:1500]}")
+
+        if exit_code != 0 and 'ImportError' not in output and 'ModuleNotFoundError' not in output:
+            log_success("Bug reproduced on retry")
+            self.repro_output = output
+            return True
+
+        if 'bug' in output.lower() and ('found' in output.lower() or 'confirmed' in output.lower()):
+            log_success("Bug confirmed from retry output")
+            self.repro_output = output
+            return True
+
+        log_error("Reproduction retry also failed")
+        return False
+
     def _locate_files_smart(self):
         log_step("LOCATE", "Using smart search to identify files...")
         issue_text = self.issue['problem_statement']
-        potential_files = extract_file_paths(issue_text)
 
-        if potential_files:
-            log_success(f"Found explicit file mentions: {potential_files}")
-            resolved = self._resolve_file_paths(potential_files[:5])
+        all_file_paths = self._extract_all_file_paths(issue_text)
+        if all_file_paths:
+            log_success(f"Found explicit file mentions: {all_file_paths}")
+            resolved = self._resolve_file_paths(all_file_paths[:5])
             if resolved:
                 self.target_files = resolved[:3]
                 return True
-        
-        file_tree = self._get_file_tree(max_files=200)
+
+        file_tree = self.file_tree_cache or self._get_file_tree(max_files=300)
 
         try:
             prompt = build_improved_locate_prompt(
@@ -182,7 +272,7 @@ class ImprovedAgent:
             )
 
             response = self.llm.get_completion(SYSTEM_PROMPT, prompt, temperature=0.2)
-            files = extract_file_paths(response)
+            files = self._extract_all_file_paths(response)
 
             if files:
                 resolved = self._resolve_file_paths(files[:5])
@@ -200,15 +290,40 @@ class ImprovedAgent:
                 max_files=3
             )
             if files:
-                self.target_files = files
-                log_success(f"Context search found: {files}")
-                return True
+                resolved = self._resolve_file_paths(files)
+                if resolved:
+                    self.target_files = resolved[:3]
+                    log_success(f"Context search found: {self.target_files}")
+                    return True
         except Exception as e:
             logger.error(f"Context search failed: {e}")
-        
+
         log_error("Could not identify which files need fixing.")
         return False
-    
+
+    def _extract_all_file_paths(self, text: str):
+        patterns = [
+            r'`([a-zA-Z0-9_/\-\.]+\.\w{1,5})`',
+            r'"([a-zA-Z0-9_/\-\.]+\.\w{1,5})"',
+            r'([a-zA-Z0-9_/\-\.]+\.(?:py|ts|tsx|js|jsx|css|scss|html|json|yaml|yml))\b',
+        ]
+
+        paths = []
+        for pattern in patterns:
+            matches = re.findall(pattern, text)
+            paths.extend(matches)
+
+        seen = set()
+        unique = []
+        skip_extensions = {'.md', '.txt', '.rst', '.log', '.lock', '.map'}
+        for path in paths:
+            ext = '.' + path.rsplit('.', 1)[-1] if '.' in path else ''
+            if path not in seen and ext not in skip_extensions:
+                seen.add(path)
+                unique.append(path)
+
+        return unique
+
     def _generate_fix_with_retry(self):
         """Generate fix with error feedback loop"""
         log_step("FIX", f"Generating fixes with up to {self.feedback_loop.max_attempts} attempts...")
@@ -248,9 +363,12 @@ class ImprovedAgent:
         
         file_content = original_content
         relevant_sections = None
-        
-        MAX_FILE_CHARS = 25000 
-        if len(original_content) > MAX_FILE_CHARS:
+
+        MAX_FILE_CHARS = 25000
+        file_ext = filepath.rsplit('.', 1)[-1] if '.' in filepath else 'py'
+        is_python = file_ext == 'py'
+
+        if len(original_content) > MAX_FILE_CHARS and is_python:
             log_step("EXTRACT", f"File too large ({len(original_content)} chars), extracting relevant context...")
             
             try:
@@ -271,8 +389,10 @@ class ImprovedAgent:
             except Exception as e:
                 logger.error(f"Context extraction failed: {e}")
                 file_content = original_content[:MAX_FILE_CHARS]
-                log_error("Using first 25k characters as fallback")
-        
+
+        elif len(original_content) > MAX_FILE_CHARS:
+            file_content = original_content[:MAX_FILE_CHARS]
+
         if attempt == 1:
             prompt = build_improved_fix_prompt(
                 issue=self.issue['problem_statement'],
@@ -291,17 +411,24 @@ class ImprovedAgent:
             )
 
         response = self.llm.get_completion(SYSTEM_PROMPT, prompt, temperature=0.2, max_tokens=8192)
-        fixed_code = extract_python_code(response)
-        
-        if not fixed_code:
-            log_error(f"No code extracted from LLM response for {filepath}")
-            return False
-        
-        is_valid, error = validate_python_code(fixed_code)
-        if not is_valid:
-            log_error(f"Generated fix has syntax errors: {error}")
-            return False
-    
+
+        if is_python:
+            fixed_code = extract_python_code(response)
+
+            if not fixed_code:
+                log_error(f"No code extracted from LLM response for {filepath}")
+                return False
+
+            is_valid, error = validate_python_code(fixed_code)
+            if not is_valid:
+                log_error(f"Generated fix has syntax errors: {error}")
+                return False
+        else:
+            fixed_code = self._extract_code_block(response, file_ext)
+            if not fixed_code:
+                log_error(f"No code extracted from LLM response for {filepath}")
+                return False
+
         if fixed_code.strip() == file_content.strip():
             log_error(f"LLM returned unchanged code for {filepath}")
             return False
@@ -320,40 +447,55 @@ class ImprovedAgent:
         log_success(f"Applied fix to {filepath} (attempt {attempt})")
         
         return True
-    
+
+    def _extract_code_block(self, response: str, file_ext: str) -> str:
+        lang_map = {
+            'ts': ['typescript', 'ts'],
+            'tsx': ['typescript', 'tsx', 'ts'],
+            'js': ['javascript', 'js'],
+            'jsx': ['javascript', 'jsx', 'js'],
+            'css': ['css'],
+            'scss': ['scss', 'css'],
+            'json': ['json'],
+            'yaml': ['yaml', 'yml'],
+            'html': ['html'],
+        }
+
+        languages = lang_map.get(file_ext, [file_ext])
+
+        for lang in languages:
+            pattern = rf"```{lang}\s*(.*?)```"
+            matches = re.findall(pattern, response, re.DOTALL | re.IGNORECASE)
+            if matches:
+                return matches[0].strip()
+
+        pattern = r"```\s*(.*?)```"
+        matches = re.findall(pattern, response, re.DOTALL)
+        if matches:
+            longest = max(matches, key=len)
+            return longest.strip()
+
+        return ""
+
     def _verify_fix(self):
         """Verify the fix and return (success, error_output)"""
         log_step("VERIFY", "Verifying the fix...")
         exit_code, output = self.sandbox.run_command(f"python {self.repro_script}", timeout=30)
-        
-        print(f"\nVerification output:\n{output[:1000]}")
-        
-        # Check if reproduction script has import errors
-        if 'ImportError: cannot import name' in output:
-            log_error("Reproduction script has import errors, running real tests instead...")
-            
-            # Run Django tests as fallback
-            exit_code, test_output = self.sandbox.run_command(
-                'cd /testbed && python tests/runtests.py --settings=test_sqlite queries -v 2',
-                timeout=60
-            )
-            
-            print(f"\nDjango test output:\n{test_output[:1000]}")
-            
-            # Check Django test results
-            if 'FAILED' not in test_output and 'ERROR' not in test_output:
-                success = True
-                output = test_output
-                log_success("Django tests passed!")
-            else:
-                success = False
-                output = test_output
-                log_error("Django tests failed")
+
+        print(f"\nVerification output:\n{output[:1500]}")
+
+        # Check if reproduction script has import errors - run framework tests as fallback
+        if 'ImportError' in output or 'ModuleNotFoundError' in output:
+            log_error("Reproduction script has import errors, running framework tests instead...")
+            success, output = self._run_framework_tests()
         else:
-            # Reproduction script worked, use its result
-            success = exit_code == 0 and not extract_error_messages(output)
-        
-        # Record in feedback loop
+            has_errors = extract_error_messages(output)
+            success = exit_code == 0 and not has_errors
+
+            if exit_code == 0 and not has_errors:
+                if 'bug' in output.lower() and 'present' in output.lower():
+                    success = False
+
         self.feedback_loop.add_attempt(
             attempt_num=len(self.feedback_loop.attempts_history) + 1,
             file_path=', '.join(self.target_files),
@@ -368,3 +510,22 @@ class ImprovedAgent:
         else:
             log_error("Fix did not resolve the issue")
             return False, output
+
+    def _run_framework_tests(self):
+        test_cmd = get_test_command(self.instance_id)
+        log_step("VERIFY", f"Running {self.framework} tests: {test_cmd[:50]}...")
+
+        exit_code, test_output = self.sandbox.run_command(
+            f'cd /testbed && {test_cmd}',
+            timeout=120
+        )
+
+        print(f"\n{self.framework.capitalize()} test output:\n{test_output[:1500]}")
+
+        # Check test results based on framework
+        if 'FAILED' in test_output or 'ERROR' in test_output or 'error:' in test_output.lower():
+            log_error(f"{self.framework.capitalize()} tests failed")
+            return False, test_output
+        else:
+            log_success(f"{self.framework.capitalize()} tests passed!")
+            return True, test_output

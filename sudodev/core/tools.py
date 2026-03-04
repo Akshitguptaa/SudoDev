@@ -171,7 +171,8 @@ def parse_patch(patch_text: str) -> Dict[str, any]:
     result = {
         'filepath': None,
         'additions': [],
-        'deletions': []
+        'deletions': [],
+        'hunks': []
     }
 
     current_hunk = None
@@ -213,8 +214,8 @@ def parse_patch(patch_text: str) -> Dict[str, any]:
             if current_hunk:
                 current_hunk['lines'].append(line)
 
-        if current_hunk:
-            result['hunk'].append(current_hunk)
+    if current_hunk:
+        result['hunks'].append(current_hunk)
 
     return result
 
@@ -269,10 +270,8 @@ def format_test_results(results: Dict[str, any]) -> str:
     
     return "\n".join(output)
 
-import re
 
 def clean_llm_response(text: str) -> str:
-    
     code_block_pattern = re.compile(
         r"```(?:\w+)?\n([\s\S]*?)```",
         re.MULTILINE
@@ -283,9 +282,9 @@ def clean_llm_response(text: str) -> str:
 
     prefix_pattern = re.compile(
         r"""^\s*(
-            here[’']?s the code[:!]? |
+            here['']?s the code[:!]? |
             here is the code[:!]? |
-            sure[,!]? here[’']?s |
+            sure[,!]? here['']?s |
             sure[,!]? |
             certainly[,!]? |
             below is the code[:!]?

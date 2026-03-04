@@ -35,10 +35,10 @@ class Sandbox:
             logger.info(f"Attempting to start sandbox for {self.image_name}...")
             self.container = self.client.containers.run(
                 self.image_name,
-                command="tail -f /dev/null", 
+                command="tail -f /dev/null",
                 detach=True,
                 working_dir="/testbed",
-                user="root" 
+                user="root"
             )
             logger.info(f"Sandbox started (ID: {self.container.short_id})")
             time.sleep(2)
@@ -50,11 +50,9 @@ class Sandbox:
         if not self.container:
             raise RuntimeError("Container is not running.")
 
-        wrapped_cmd = f"/bin/bash -c 'source ~/.bashrc && {cmd}'"
-        
         try:
             exec_result = self.container.exec_run(
-                wrapped_cmd,
+                ["/bin/bash", "-c", f"source ~/.bashrc 2>/dev/null; {cmd}"],
                 workdir="/testbed"
             )
             output = exec_result.output.decode('utf-8', errors='replace')

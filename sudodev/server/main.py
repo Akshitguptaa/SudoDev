@@ -4,24 +4,41 @@ import uuid
 import logging
 import os
 from datetime import datetime
-from datasets import load_dataset
 
 from sudodev.server.models import AgentRunRequest, AgentRunResponse, AgentStatusResponse
-from sudodev.core.cache_manager import InstanceCacheManager
 from sudodev.core.unified_agent import UnifiedAgent
 
-# Load SWE-bench dataset at startup (cached for fast lookups)
-print("Loading SWE-bench dataset...")
-swe_bench_dataset = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
-print(f"Loaded {len(swe_bench_dataset)} issues from SWE-bench")
+swe_bench_dataset = None
+cache_manager = None
 
-if os.path.exists("/app"):
-    cache_dir = os.getenv("SWEBENCH_CACHE_DIR", "/app/cache/swebench")
-else:
-    cache_dir = os.getenv("SWEBENCH_CACHE_DIR", "./cache/swebench")
 
-cache_manager = InstanceCacheManager(cache_dir)
-print(f"Cache manager initialized at {cache_dir}")
+def load_swebench():
+    global swe_bench_dataset, cache_manager
+    if swe_bench_dataset is not None:
+        return True
+
+    try:
+        from datasets import load_dataset
+        from sudodev.core.cache_manager import InstanceCacheManager
+
+        print("Loading SWE-bench dataset...")
+        swe_bench_dataset = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
+        print(f"Loaded {len(swe_bench_dataset)} issues from SWE-bench")
+
+        if os.path.exists("/app"):
+            cache_dir = os.getenv("SWEBENCH_CACHE_DIR", "/app/cache/swebench")
+        else:
+            cache_dir = os.getenv("SWEBENCH_CACHE_DIR", "./cache/swebench")
+
+        cache_manager = InstanceCacheManager(cache_dir)
+        print(f"Cache manager initialized at {cache_dir}")
+        return True
+
+    except Exception as e:
+        print(f"SWE-bench dataset not available: {e}")
+        print("SWE-bench mode will be disabled. GitHub mode is still available.")
+        return False
+
 
 app = FastAPI()
 
@@ -74,8 +91,14 @@ def run_agent(run_id: str, request: AgentRunRequest):
     
     try:
         if request.mode == "swebench":
+            if not load_swebench():
+                raise RuntimeError("SWE-bench dataset is not available. Install 'datasets' package.")
+
             add_log(run_id, f"[INIT] Loading issue {request.instance_id}...", 0)
-            issue = next((item for item in swe_bench_dataset if item["instance_id"] == request.instance_id), None)
+            issue = next(
+                (item for item in swe_bench_dataset if item["instance_id"] == request.instance_id),
+                None
+            )
 
             if not issue:
                 raise FileNotFoundError(f"Instance {request.instance_id} not found in SWE-bench dataset")
@@ -170,10 +193,16 @@ def run_agent(run_id: str, request: AgentRunRequest):
 
 @app.get("/")
 def root():
+    swebench_available = swe_bench_dataset is not None
+    modes = ["github"]
+    if swebench_available:
+        modes.insert(0, "swebench")
+
     return {
         "message": "SudoDev API",
         "version": "0.2.0",
-        "modes": ["swebench", "github"]
+        "modes": modes,
+        "swebench_available": swebench_available
     }
 
 @app.post("/api/run")
@@ -232,9 +261,61 @@ def list_runs():
 
 @app.get("/api/cache/status")
 def cache_status():
+    if not load_swebench():
+        return {"error": "SWE-bench not available", "cached_instances": [], "total_cached": 0}
     return cache_manager.get_cache_info()
 
 @app.delete("/api/cache/clear")
 def clear_cache(instance_id: str = None):
+    if not load_swebench():
+        return {"error": "SWE-bench not available"}
     cache_manager.clear_cache(instance_id)
     return {"message": f"Cache cleared for {instance_id}" if instance_id else "All cache cleared"}
+
+@app.get("/api/docker/status/{instance_id}")
+def docker_image_status(instance_id: str):
+    if not load_swebench():
+        return {"instance_id": instance_id, "image_exists": False, "cached": False}
+    return cache_manager.get_docker_image_status(instance_id)
+
+@app.post("/api/docker/build/{instance_id}")
+def build_docker_image(instance_id: str):
+    if not load_swebench():
+        return {"success": False, "instance_id": instance_id, "message": "SWE-bench not available"}
+
+    status = cache_manager.get_docker_image_status(instance_id)
+
+    if status["image_exists"]:
+        print(f"Docker image already exists for {instance_id}")
+        return {
+            "success": True,
+            "instance_id": instance_id,
+            "message": "Docker image already exists",
+            "already_exists": True
+        }
+
+    try:
+        result = cache_manager.build_docker_image(instance_id)
+        return result
+    except Exception as e:
+        logging.error(f"Build failed for {instance_id}: {e}")
+        return {
+            "success": False,
+            "instance_id": instance_id,
+            "message": str(e),
+            "error": str(e)
+        }
+
+@app.get("/api/instances")
+def list_swebench_instances():
+    if not load_swebench():
+        return {"instances": [], "total": 0, "message": "SWE-bench not available"}
+
+    instances = []
+    for item in swe_bench_dataset:
+        instances.append({
+            "instance_id": item["instance_id"],
+            "repo": item.get("repo", ""),
+            "has_docker": cache_manager._docker_image_exists(item["instance_id"])
+        })
+    return {"instances": instances, "total": len(instances)}

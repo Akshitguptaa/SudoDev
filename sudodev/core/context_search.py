@@ -1,6 +1,6 @@
 import ast
 import re
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 from sudodev.core.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -44,19 +44,21 @@ CONCEPTS: concept1, concept2
             'concepts': []
         }
 
+        category_map = {
+            'FUNCTIONS:': 'functions',
+            'CLASSES:': 'classes',
+            'VARIABLES:': 'variables',
+            'ERRORS:': 'errors',
+            'CONCEPTS:': 'concepts',
+        }
+
         for line in response.split('\n'):
             line = line.strip()
-            if line.startswith('FUNCTIONS:'):
-                keywords['functions'] = [k.strip() for k in line.replace('FUNCTIONS:', '').split(',') if k.strip()]
-            elif line.startswith('CLASSES:'):
-                keywords['classes'] = [k.strip() for k in line.replace('CLASSES:', '').split(',') if k.strip()]
-            elif line.startswith('VARIABLES:'):
-                keywords['variables'] = [k.strip() for k in line.replace('VARIABLES:', '').split(',') if k.strip()]
-            elif line.startswith('ERRORS:'):
-                keywords['errors'] = [k.strip() for k in line.replace('ERRORS:', '').split(',') if k.strip()]
-            elif line.startswith('CONCEPTS:'):
-                keywords['concepts'] = [k.strip() for k in line.replace('CONCEPTS:', '').split(',') if k.strip()]
-        
+            for prefix, key in category_map.items():
+                if line.startswith(prefix):
+                    keywords[key] = [k.strip() for k in line.replace(prefix, '').split(',') if k.strip()]
+                    break
+
         logger.info(f"Extracted keywords: {keywords}")
         return keywords
     
@@ -101,10 +103,16 @@ CONCEPTS: concept1, concept2
         max_chars: int = 20000
     ) -> Tuple[str, List[str]]:
         structure = self.parse_python_file(file_content)
-        logger.info(f"Parsed structure: {len(structure.get('classes', []) if structure else [])} classes, {len(structure.get('functions', []) if structure else [])} functions")
+
         if not structure:
             logger.warning("AST parsing failed, using fallback")
-        
+            return file_content[:max_chars], ["Full file (AST parsing failed)"]
+
+        logger.info(
+            f"Parsed structure: {len(structure.get('classes', []))} classes, "
+            f"{len(structure.get('functions', []))} functions"
+        )
+
         lines = file_content.split('\n')
         relevant_sections = []
         included_lines = set()
@@ -164,6 +172,7 @@ CONCEPTS: concept1, concept2
         if not relevant_sections:
             relevant_sections.append('\n'.join(lines[:200]))
             sections_info.append("File header (no specific matches)")
+
         result = "\n\n# ===== RELEVANT SECTIONS =====\n\n".join(relevant_sections)
     
         logger.info(f"Extracted {len(relevant_sections)} sections ({current_chars} chars)")
@@ -178,7 +187,7 @@ CONCEPTS: concept1, concept2
     ) -> int:
         score = 0
         name_lower = name.lower()
-        docstring_lower = (docstring or'').lower()
+        docstring_lower = (docstring or '').lower()
 
         for keyword in keywords.get('functions', []) + keywords.get('classes', []):
             if keyword.lower() in name_lower:
@@ -227,8 +236,6 @@ CONCEPTS: concept1, concept2
         file_tree: str,
         max_files: int = 5
     ) -> List[str]:
-        """Use LLM to rank files by relevance"""
-        
         prompt = f"""Given this GitHub issue, identify which files are most likely to need modification.
 
 Issue:
@@ -256,7 +263,7 @@ Respond with ONLY the file paths, one per line, ranked from most to least releva
         files = []
         for line in response.split('\n'):
             line = line.strip()
-            line = re.sub(r'^\d+[\.\)]\s*', '', line)
+            line = re.sub(r'^\d+[\.)\s]*', '', line)
             line = re.sub(r'^[-\*]\s*', '', line)
             line = line.strip('`"\'')
             

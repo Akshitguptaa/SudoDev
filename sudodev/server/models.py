@@ -25,24 +25,23 @@ class AgentRunRequest(BaseModel):
                 raise ValueError("instance_id is required for swebench mode")
 
         elif self.mode == "github":
+            if self.issue_url and not self.github_url:
+                extracted = self._extract_repo_url_from_issue(self.issue_url)
+                if extracted:
+                    self.github_url = extracted
+
             if not self.github_url:
-                raise ValueError("github_url is required for github mode")
+                raise ValueError(
+                    "github_url is required for github mode. "
+                    "Provide it directly or use a valid issue_url to auto-extract it."
+                )
 
             if self.issue_url:
-                try:
-                    self.issue_description = self._fetch_github_issue(self.issue_url)
-                except Exception:
-                    raise
+                self.issue_description = self._fetch_github_issue(self.issue_url)
 
             elif self.issue_number:
-                if not self.github_url:
-                    raise ValueError("github_url required when using issue_number")
-
                 issue_url = self._construct_issue_url(self.github_url, self.issue_number)
-                try:
-                    self.issue_description = self._fetch_github_issue(issue_url)
-                except Exception:
-                    raise
+                self.issue_description = self._fetch_github_issue(issue_url)
 
             elif not self.issue_description:
                 raise ValueError(
@@ -51,8 +50,20 @@ class AgentRunRequest(BaseModel):
 
         return self
 
+    def _extract_repo_url_from_issue(self, issue_url: str) -> Optional[str]:
+        match = re.match(
+            r'https://github\.com/([^/]+)/([^/]+)/issues/\d+',
+            issue_url.rstrip('/')
+        )
+        if match:
+            owner, repo = match.groups()
+            return f"https://github.com/{owner}/{repo}"
+        return None
+
     def _construct_issue_url(self, repo_url: str, issue_number: int) -> str:
-        clean_url = repo_url.rstrip('/').rstrip('.git')
+        clean_url = repo_url.rstrip('/')
+        if clean_url.endswith('.git'):
+            clean_url = clean_url[:-4]
         return f"{clean_url}/issues/{issue_number}"
 
     def _fetch_github_issue(self, issue_url: str) -> str:
