@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import FileExplorer from "./FileExplorer";
 import CodeEditor from "./CodeEditor";
 import IDETerminal from "./IDETerminal";
+import AgentPanel from "./AgentPanel";
 
 interface OpenTab {
     path: string;
@@ -26,10 +27,23 @@ export default function IDELayout({ sessionId, apiBase, wsBase }: IDELayoutProps
 
     const [explorerWidth, setExplorerWidth] = useState(240);
     const [terminalHeight, setTerminalHeight] = useState(250);
+    const [agentWidth, setAgentWidth] = useState(300);
+
+    const [highlightRequest, setHighlightRequest] = useState<{ filepath: string, lines?: string } | null>(null);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const isDraggingVertical = useRef(false);
     const isDraggingHorizontal = useRef(false);
+    const isDraggingAgent = useRef(false);
+
+    const handleHighlightRequest = useCallback((filepath: string, lines?: string) => {
+        const normalized = filepath.startsWith('/testbed/') ? filepath.replace('/testbed/', '') : filepath;
+        setSelectedFile(normalized);
+        setActiveTab(normalized);
+        if (lines) {
+            setHighlightRequest({ filepath: normalized, lines });
+        }
+    }, []);
 
     const handleFileSelect = useCallback((path: string) => {
         setSelectedFile(path);
@@ -83,6 +97,30 @@ export default function IDELayout({ sessionId, apiBase, wsBase }: IDELayoutProps
         document.addEventListener("mouseup", onUp);
     }, [terminalHeight]);
 
+    const startAgentDrag = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        isDraggingAgent.current = true;
+
+        const startX = e.clientX;
+        const startWidth = agentWidth;
+
+        const onMove = (me: MouseEvent) => {
+            if (!isDraggingAgent.current) return;
+            const delta = startX - me.clientX;
+            const newWidth = Math.max(200, Math.min(600, startWidth + delta));
+            setAgentWidth(newWidth);
+        };
+
+        const onUp = () => {
+            isDraggingAgent.current = false;
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+        };
+
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+    }, [agentWidth]);
+
     return (
         <div ref={containerRef} className="flex-1 flex overflow-hidden">
             <div style={{ width: explorerWidth, minWidth: 180 }} className="shrink-0">
@@ -109,6 +147,7 @@ export default function IDELayout({ sessionId, apiBase, wsBase }: IDELayoutProps
                         setOpenTabs={setOpenTabs}
                         activeTab={activeTab}
                         setActiveTab={setActiveTab}
+                        highlightRequest={highlightRequest}
                     />
                 </div>
 
@@ -120,6 +159,19 @@ export default function IDELayout({ sessionId, apiBase, wsBase }: IDELayoutProps
                 <div style={{ height: terminalHeight, minHeight: 120 }} className="shrink-0">
                     <IDETerminal sessionId={sessionId} wsBase={wsBase} />
                 </div>
+            </div>
+
+            <div
+                className="w-1 bg-zinc-800 hover:bg-blue-500/50 cursor-col-resize transition-colors shrink-0"
+                onMouseDown={startAgentDrag}
+            />
+
+            <div style={{ width: agentWidth, minWidth: 200 }} className="shrink-0">
+                <AgentPanel
+                    sessionId={sessionId}
+                    wsBase={wsBase}
+                    onHighlightRequest={handleHighlightRequest}
+                />
             </div>
         </div>
     );

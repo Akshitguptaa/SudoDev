@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from sudodev.runtime.ide_sandbox import IDESandbox
 from sudodev.core.utils.logger import setup_logger
+from sudodev.core.agent_observer import BaseAgentObserver, AgentEvent
+from sudodev.core.unified_agent import UnifiedAgent
 
 logger = setup_logger(__name__)
 
@@ -201,3 +203,103 @@ def _get_sandbox(session_id: str) -> IDESandbox:
     sandbox: IDESandbox = sess["sandbox"]
     sandbox.touch()
     return sandbox
+
+
+class WebSocketAgentObserver(BaseAgentObserver):
+    def __init__(self, websocket: WebSocket, loop: asyncio.AbstractEventLoop):
+        self.ws = websocket
+        self.loop = loop
+        self._user_reply_future: Optional[asyncio.Future] = None
+
+    def _send(self, event_type: str, data: dict):
+        event = AgentEvent(type=event_type, data=data).model_dump_json()
+        asyncio.run_coroutine_threadsafe(self.ws.send_text(event), self.loop)
+
+    def on_step(self, name: str, description: str) -> None:
+        super().on_step(name, description)
+        self._send('step', {'name': name, 'description': description})
+
+    def on_log(self, message: str) -> None:
+        super().on_log(message)
+        self._send('log', {'message': message})
+
+    def on_highlight(self, filepath: str, lines: Optional[str] = None) -> None:
+        super().on_highlight(filepath, lines)
+        self._send('highlight', {'filepath': filepath, 'lines': lines})
+
+    def ask_user(self, prompt: str) -> str:
+        super().ask_user(prompt)
+        future = asyncio.run_coroutine_threadsafe(self._ask_user_async(prompt), self.loop)
+        return future.result()
+
+    async def _ask_user_async(self, prompt: str) -> str:
+        self._user_reply_future = self.loop.create_future()
+        event = AgentEvent(type='ask_user', data={'prompt': prompt}).model_dump_json()
+        await self.ws.send_text(event)
+        reply = await self._user_reply_future
+        self._user_reply_future = None
+        return reply
+
+    def resolve_user_reply(self, reply: str):
+        if self._user_reply_future and not self._user_reply_future.done():
+            self._user_reply_future.set_result(reply)
+
+@router.websocket("/agent/ws/{session_id}")
+async def agent_websocket(websocket: WebSocket, session_id: str):
+    if session_id not in ide_sessions:
+        await websocket.close(code=4004, reason="Session not found")
+        return
+
+    sess = ide_sessions[session_id]
+    await websocket.accept()
+    logger.info(f"Agent WebSocket connected for session {session_id}")
+
+    loop = asyncio.get_event_loop()
+    observer = WebSocketAgentObserver(websocket, loop)
+    agent_thread = None
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            action = data.get("action")
+
+            if action == "start":
+                if agent_thread and agent_thread.is_alive():
+                    continue
+                
+                # Retrieve the initial issue context if we have one
+                issue_description = sess.get("problem_statement", "Fix the issue according to the repository context.")
+
+                def run_agent():
+                    try:
+                        agent = UnifiedAgent(
+                            mode=sess["mode"],
+                            issue_data={
+                                "instance_id": sess.get("instance_id"),
+                                "problem_statement": issue_description
+                            },
+                            github_url=sess.get("github_url"),
+                            branch=sess.get("branch", "main"),
+                            issue_description=issue_description,
+                            observer=observer,
+                            sandbox=sess["sandbox"]
+                        )
+                        success = agent.run()
+                        observer._send('done', {'success': success})
+                    except Exception as e:
+                        logger.error(f"Agent thread error: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        observer._send('error', {'message': str(e)})
+
+                agent_thread = threading.Thread(target=run_agent, daemon=True)
+                agent_thread.start()
+
+            elif action == "reply":
+                reply_text = data.get("text", "")
+                observer.resolve_user_reply(reply_text)
+
+    except WebSocketDisconnect:
+        logger.info(f"Agent WebSocket disconnected for session {session_id}")
+    except Exception as e:
+        logger.error(f"Agent WebSocket error: {e}")

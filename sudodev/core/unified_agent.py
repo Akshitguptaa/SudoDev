@@ -7,10 +7,12 @@ logger = setup_logger(__name__)
 class UnifiedAgent:
     def __init__(self, mode: str, **kwargs):
         self.mode = mode
+        self.observer = kwargs.get('observer')
+        self.existing_sandbox = kwargs.get('sandbox')
 
         if mode == "swebench":
             self.issue = kwargs['issue_data']
-            self.agent = ImprovedAgent(self.issue)
+            self.agent = ImprovedAgent(self.issue, observer=self.observer, sandbox=self.existing_sandbox)
             logger.info(f"Initialized SWE-bench agent for {self.issue['instance_id']}")
         
         elif mode == "github":
@@ -28,9 +30,10 @@ class UnifiedAgent:
 
             logger.info(f"Initializing GitHub agent for {github_url} (branch: {branch})")
 
-            self.agent = ImprovedAgent(self.issue)
-            self.agent.sandbox = GitHubSandbox(github_url, branch)
-            logger.info("GitHub sandbox configured")
+            self.agent = ImprovedAgent(self.issue, observer=self.observer, sandbox=self.existing_sandbox)
+            if not self.existing_sandbox:
+                self.agent.sandbox = GitHubSandbox(github_url, branch)
+                logger.info("GitHub sandbox configured")
         
         else:
             raise ValueError(f"Unknown mode: {mode}. Must be 'swebench' or 'github'")

@@ -203,6 +203,21 @@ CMD ["/bin/bash"]
         self.container.put_archive(path=dir_path, data=tar_stream)
         logger.info(f"Wrote file: {filepath}")
 
+    def run_command(self, cmd: str, timeout: int = 60):
+        if not self.container:
+            raise RuntimeError("Container is not running.")
+
+        self.touch()
+        try:
+            exec_result = self.container.exec_run(
+                ["/bin/bash", "-c", f"source ~/.bashrc 2>/dev/null; {cmd}"],
+                workdir="/testbed"
+            )
+            output = exec_result.output.decode('utf-8', errors='replace')
+            return exec_result.exit_code, output
+        except Exception as e:
+            return -1, str(e)
+
     def _exec(self, cmd: str):
         exec_result = self.container.exec_run(
             ["/bin/bash", "-c", cmd],

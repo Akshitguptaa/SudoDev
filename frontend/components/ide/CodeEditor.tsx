@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import { X, Save, Loader2, Circle } from "lucide-react";
 
@@ -20,6 +20,7 @@ interface CodeEditorProps {
     setOpenTabs: React.Dispatch<React.SetStateAction<OpenTab[]>>;
     activeTab: string | null;
     setActiveTab: (path: string | null) => void;
+    highlightRequest?: { filepath: string; lines?: string } | null;
 }
 
 function getLanguage(filename: string): string {
@@ -66,9 +67,19 @@ export default function CodeEditor({
     setOpenTabs,
     activeTab,
     setActiveTab,
+    highlightRequest,
 }: CodeEditorProps) {
     const [saving, setSaving] = useState(false);
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+    const editorRef = useRef<any>(null);
+    const monacoRef = useRef<any>(null);
+    const decorationsRef = useRef<string[]>([]);
+
+    const handleEditorDidMount = (editor: any, monaco: any) => {
+        editorRef.current = editor;
+        monacoRef.current = monaco;
+    };
 
     useEffect(() => {
         if (!filePath) return;
@@ -142,6 +153,42 @@ export default function CodeEditor({
     }, [activeTab, openTabs, sessionId, apiBase]);
 
     useEffect(() => {
+        if (!highlightRequest || !editorRef.current || !monacoRef.current || highlightRequest.filepath !== activeTab) {
+            return;
+        }
+
+        const editor = editorRef.current;
+        const monaco = monacoRef.current;
+
+        let startLine = 1;
+        let endLine = 1;
+
+        if (highlightRequest.lines) {
+            const match = highlightRequest.lines.match(/L(\d+)-L(\d+)/);
+            if (match) {
+                startLine = parseInt(match[1]);
+                endLine = parseInt(match[2]);
+            }
+        } else {
+            startLine = 1;
+            endLine = editor.getModel().getLineCount();
+        }
+
+        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
+            {
+                range: new monaco.Range(startLine, 1, endLine, 1),
+                options: {
+                    isWholeLine: true,
+                    className: "bg-blue-500/20 border-l-2 border-blue-500"
+                }
+            }
+        ]);
+
+        editor.revealRangeInCenterIfOutsideViewport(new monaco.Range(startLine, 1, endLine, 1));
+
+    }, [highlightRequest, activeTab]);
+
+    useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key === "s") {
                 e.preventDefault();
@@ -205,6 +252,7 @@ export default function CodeEditor({
                             language={getLanguage(currentTab.name)}
                             value={currentTab.content}
                             theme="vs-dark"
+                            onMount={handleEditorDidMount}
                             onChange={(value) => {
                                 setOpenTabs((prev) =>
                                     prev.map((t) =>
