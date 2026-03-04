@@ -71,9 +71,19 @@ graph TD
 -   **Runtime**: Docker
 -   **Styling**: Tailwind CSS 
 
+## TO-DO
+
+- [x] Bench Mode testing
+- [x] Github pipeline
+- [x] Docker Sandbox
+- [x] AST context
+- [x] Recursive feedback
+- [ ] IDE-integration
+- [ ] Auto PRs
 
 ## Contributing
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 Apache-2.0 License. See [LICENSE](LICENSE) for more information.1
+
