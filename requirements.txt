@@ -1,7 +1,7 @@
 Brotli==1.1.0
 cffi==2.0.0
 fastapi==0.127.0
-groq==0.37.1
+google-genai>=1.0.0
 httptools==0.7.1
 pip==25.2
 PySocks==1.7.1

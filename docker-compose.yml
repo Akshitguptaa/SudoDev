@@ -9,13 +9,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./sudodev:/app/sudodev
-      - ./cache:/app/cache
+      - ${PWD}:${PWD}
       - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: ${PWD}
     environment:
-      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - PYTHONUNBUFFERED=1
-      - SWEBENCH_CACHE_DIR=/app/cache/swebench
+      - SWEBENCH_CACHE_DIR=${PWD}/cache/swebench
+      - PYTHONPATH=${PWD}
     command: uvicorn sudodev.server.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - sudodev-network
