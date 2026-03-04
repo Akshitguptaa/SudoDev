@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { CheckCircle2, XCircle, Download } from "lucide-react";
 
-export default function Results({ status, patch, onReset }) {
+export default function Results({ status, patch, onReset }: { status: string; patch: string; onReset: () => void }) {
     const isSuccess = status === "completed";
 
     const downloadPatch = () => {

@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
 
-export default function AgentView({ steps, currentStep, logs }) {
+export default function AgentView({ steps, currentStep, logs }: { steps: any[]; currentStep: number; logs: string[] }) {
     return (
         <motion.div
             key="hud"

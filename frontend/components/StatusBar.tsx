@@ -1,13 +1,13 @@
 "use client";
 
-const STATUS_COLORS = {
+const STATUS_COLORS: Record<string, string> = {
     idle: "bg-zinc-500",
     processing: "bg-amber-500",
     completed: "bg-emerald-500",
     error: "bg-rose-500",
 };
 
-export default function StatusBar({ status, runId }) {
+export default function StatusBar({ status, runId }: { status: string; runId: string }) {
     const color = STATUS_COLORS[status] || STATUS_COLORS.error;
 
     return (

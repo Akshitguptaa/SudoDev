@@ -77,3 +77,37 @@ body {
     opacity: 0.5;
   }
 }
+
+/* IDE Panel Styles */
+.ide-panel-divider-v:hover {
+  background-color: rgba(59, 130, 246, 0.5);
+}
+
+.ide-panel-divider-h:hover {
+  background-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Monaco editor overrides */
+.monaco-editor .margin,
+.monaco-editor .monaco-editor-background {
+  background-color: #0a0a0c !important;
+}
+
+/* Scrollbar styling for IDE panels */
+.ide-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.ide-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ide-scrollbar::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 3px;
+}
+
+.ide-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}

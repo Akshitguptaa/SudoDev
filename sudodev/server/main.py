@@ -7,6 +7,7 @@ from datetime import datetime
 
 from sudodev.server.models import AgentRunRequest, AgentRunResponse, AgentStatusResponse
 from sudodev.core.unified_agent import UnifiedAgent
+from sudodev.server.routes.ide import router as ide_router
 
 swe_bench_dataset = None
 cache_manager = None
@@ -45,10 +46,12 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(ide_router)
 
 agent_runs = {}
 

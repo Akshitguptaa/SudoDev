@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Rocket, Loader2, Github, Database } from "lucide-react";
+import { Rocket, Loader2, Github, Database, Monitor } from "lucide-react";
 
 type InputMode = "swebench" | "github" | null;
 
@@ -18,6 +18,8 @@ interface InputProps {
     setContext: (ctx: string) => void;
     loading: boolean;
     onSubmit: (e: React.FormEvent) => void;
+    onOpenIDE?: () => void;
+    ideLoading?: boolean;
 }
 
 export default function Input({
@@ -33,6 +35,8 @@ export default function Input({
     setContext,
     loading,
     onSubmit,
+    onOpenIDE,
+    ideLoading,
 }: InputProps) {
     const handleModeSelect = (selectedMode: InputMode) => {
         setMode(selectedMode);
@@ -191,25 +195,48 @@ export default function Input({
                                     />
                                 </div>
 
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium px-6 py-3 rounded-md border-t border-white-20 border-b border-blue-800 transition-all active:scale-95 disabled:opacity-50"
-                                >
-                                    <span className="flex items-center justify-center gap-2">
-                                        {loading ? (
-                                            <>
-                                                <Loader2 className="w-4 h-4 animate-spin" />
-                                                Deploying...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Rocket className="w-4 h-4" />
-                                                Deploy Agent
-                                            </>
-                                        )}
-                                    </span>
-                                </button>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        type="submit"
+                                        disabled={loading || ideLoading}
+                                        className="bg-blue-600 hover:bg-blue-500 text-white font-medium px-6 py-3 rounded-md border-t border-white-20 border-b border-blue-800 transition-all active:scale-95 disabled:opacity-50"
+                                    >
+                                        <span className="flex items-center justify-center gap-2">
+                                            {loading ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                    Deploying...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Rocket className="w-4 h-4" />
+                                                    Deploy Agent
+                                                </>
+                                            )}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        disabled={loading || ideLoading}
+                                        onClick={onOpenIDE}
+                                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-3 rounded-md border-t border-white-20 border-b border-emerald-800 transition-all active:scale-95 disabled:opacity-50"
+                                    >
+                                        <span className="flex items-center justify-center gap-2">
+                                            {ideLoading ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                    Opening IDE...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Monitor className="w-4 h-4" />
+                                                    Open in IDE
+                                                </>
+                                            )}
+                                        </span>
+                                    </button>
+                                </div>
                             </form>
                         </motion.div>
                     )}

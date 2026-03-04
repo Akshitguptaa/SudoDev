@@ -4,8 +4,8 @@ import { useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Terminal as TerminalIcon } from "lucide-react";
 
-export default function Terminal({ logs }) {
-    const terminalRef = useRef(null);
+export default function Terminal({ logs }: { logs: string[] }) {
+    const terminalRef = useRef<HTMLDivElement>(null);
 
     // auto-scroll to bottom when new logs come in
     useEffect(() => {
@@ -14,7 +14,7 @@ export default function Terminal({ logs }) {
         }
     }, [logs]);
 
-    const getLogColor = (log) => {
+    const getLogColor = (log: string) => {
         if (log?.includes("✓")) return "text-emerald-400";
         if (log?.includes("[ERROR]")) return "text-rose-400";
         if (log?.includes("[FIX]")) return "text-amber-400";

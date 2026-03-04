@@ -1,9 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence } from "framer-motion";
 import { Code2, Search, Wrench, TestTube, Sparkles } from "lucide-react";
 import { Input, AgentView, Results, StatusBar } from "@/components";
+
+const API_BASE = typeof window !== 'undefined'
+  ? `http://${window.location.hostname}:8000`
+  : 'http://localhost:8000';
 
 const steps = [
   { id: "init", label: "Initialize", icon: Sparkles },
@@ -39,6 +44,8 @@ export default function Home() {
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [patch, setPatch] = useState("");
+  const [ideLoading, setIdeLoading] = useState(false);
+  const router = useRouter();
 
   // Poll for agent status and logs
   useEffect(() => {
@@ -209,6 +216,81 @@ export default function Home() {
     setPatch("");
   };
 
+  const handleOpenIDE = async () => {
+    if (!mode) return;
+
+    setIdeLoading(true);
+    try {
+      let requestBody: any = { mode };
+
+      if (mode === "swebench") {
+        if (!instanceId) {
+          alert("Please enter a SWE-bench instance ID");
+          return;
+        }
+
+        const dockerStatus = await fetch(`${API_BASE}/api/docker/status/${instanceId}`);
+        const dockerData = await dockerStatus.json();
+
+        if (!dockerData.image_exists) {
+          const confirmBuild = confirm(
+            `Docker image for "${instanceId}" is not available.\n\n` +
+            `Would you like to build it now? This may take 5-10 minutes.\n\n` +
+            `Click OK to build, or Cancel to abort.`
+          );
+
+          if (confirmBuild) {
+            const buildResponse = await fetch(`${API_BASE}/api/docker/build/${instanceId}`, {
+              method: "POST"
+            });
+            const buildResult = await buildResponse.json();
+            if (!buildResult.success) {
+              throw new Error(buildResult.message || "Docker build failed");
+            }
+          } else {
+            setIdeLoading(false);
+            return;
+          }
+        }
+
+        requestBody.instance_id = instanceId;
+      } else if (mode === "github") {
+        const repoUrl = githubRepoUrl || extractRepoUrl(githubIssueUrl);
+        if (!repoUrl) {
+          alert("Please enter a GitHub issue URL or repository URL");
+          return;
+        }
+        requestBody.github_url = repoUrl;
+      }
+
+      const response = await fetch(`${API_BASE}/api/ide/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      if (data.session_id) {
+        router.push(`/ide?session=${data.session_id}`);
+      } else {
+        throw new Error("No session ID returned");
+      }
+    } catch (error) {
+      console.error("Error opening IDE:", error);
+      let errorMessage = "Failed to open IDE. ";
+      if (error instanceof Error) errorMessage += error.message;
+      errorMessage += "\n\nMake sure the backend is running on port 8000.";
+      alert(errorMessage);
+    } finally {
+      setIdeLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen text-white flex flex-col">
       <header className="glassmorphism border-b border-zinc-800/50 sticky top-0 z-50">
@@ -233,6 +315,8 @@ export default function Home() {
               setContext={setContext}
               loading={loading}
               onSubmit={handleSubmit}
+              onOpenIDE={handleOpenIDE}
+              ideLoading={ideLoading}
             />
           )}
 

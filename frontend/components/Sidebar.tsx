@@ -2,7 +2,7 @@
 
 import { CheckCircle2, Loader2, GitBranch } from "lucide-react";
 
-export default function Sidebar({ steps, currentStep }) {
+export default function Sidebar({ steps, currentStep }: { steps: any[]; currentStep: number }) {
     return (
         <div className="col-span-3 bg-zinc-900/50 border border-zinc-800 rounded-lg p-6 overflow-auto backdrop-blur-sm">
             <h3 className="text-sm font-semibold mb-6 flex items-center gap-2 text-zinc-400">
@@ -20,10 +20,10 @@ export default function Sidebar({ steps, currentStep }) {
                         <div
                             key={step.id}
                             className={`flex items-center gap-3 p-2.5 rounded transition-all ${isActive
-                                    ? "bg-blue-500/10 border border-blue-500/30"
-                                    : isDone
-                                        ? "bg-zinc-800/30"
-                                        : ""
+                                ? "bg-blue-500/10 border border-blue-500/30"
+                                : isDone
+                                    ? "bg-zinc-800/30"
+                                    : ""
                                 }`}
                         >
                             {isDone ? (
