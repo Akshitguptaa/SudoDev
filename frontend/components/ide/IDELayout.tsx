@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import ActivityBar, { SidebarView } from "./ActivityBar";
 import FileExplorer from "./FileExplorer";
 import CodeEditor from "./CodeEditor";
 import IDETerminal from "./IDETerminal";
 import AgentPanel from "./AgentPanel";
+import IDEStatusBar from "./IDEStatusBar";
 
 interface OpenTab {
     path: string;
@@ -18,12 +20,15 @@ interface IDELayoutProps {
     sessionId: string;
     apiBase: string;
     wsBase: string;
+    mode: string;
+    status: string;
 }
 
-export default function IDELayout({ sessionId, apiBase, wsBase }: IDELayoutProps) {
+export default function IDELayout({ sessionId, apiBase, wsBase, mode, status }: IDELayoutProps) {
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
     const [openTabs, setOpenTabs] = useState<OpenTab[]>([]);
     const [activeTab, setActiveTab] = useState<string | null>(null);
+    const [sidebarView, setSidebarView] = useState<SidebarView>("files");
 
     const [explorerWidth, setExplorerWidth] = useState(240);
     const [terminalHeight, setTerminalHeight] = useState(250);
@@ -37,7 +42,7 @@ export default function IDELayout({ sessionId, apiBase, wsBase }: IDELayoutProps
     const isDraggingAgent = useRef(false);
 
     const handleHighlightRequest = useCallback((filepath: string, lines?: string) => {
-        const normalized = filepath.startsWith('/testbed/') ? filepath.replace('/testbed/', '') : filepath;
+        const normalized = filepath.startsWith("/testbed/") ? filepath.replace("/testbed/", "") : filepath;
         setSelectedFile(normalized);
         setActiveTab(normalized);
         if (lines) {
@@ -121,58 +126,129 @@ export default function IDELayout({ sessionId, apiBase, wsBase }: IDELayoutProps
         document.addEventListener("mouseup", onUp);
     }, [agentWidth]);
 
-    return (
-        <div ref={containerRef} className="flex-1 flex overflow-hidden">
-            <div style={{ width: explorerWidth, minWidth: 180 }} className="shrink-0">
-                <FileExplorer
-                    sessionId={sessionId}
-                    apiBase={apiBase}
-                    onFileSelect={handleFileSelect}
-                    selectedFile={activeTab}
-                />
-            </div>
-
-            <div
-                className="w-1 bg-zinc-800 hover:bg-blue-500/50 cursor-col-resize transition-colors shrink-0"
-                onMouseDown={startVerticalDrag}
-            />
-
-            <div className="flex-1 flex flex-col min-w-0">
-                <div className="flex-1 min-h-0">
-                    <CodeEditor
+    const renderSidebar = () => {
+        switch (sidebarView) {
+            case "files":
+                return (
+                    <FileExplorer
                         sessionId={sessionId}
                         apiBase={apiBase}
-                        filePath={selectedFile}
-                        openTabs={openTabs}
-                        setOpenTabs={setOpenTabs}
-                        activeTab={activeTab}
-                        setActiveTab={setActiveTab}
-                        highlightRequest={highlightRequest}
+                        onFileSelect={handleFileSelect}
+                        selectedFile={activeTab}
                     />
+                );
+            case "agent":
+                return (
+                    <AgentPanel
+                        sessionId={sessionId}
+                        wsBase={wsBase}
+                        onHighlightRequest={handleHighlightRequest}
+                    />
+                );
+            case "search":
+                return (
+                    <div className="h-full flex flex-col bg-[var(--vscode-sidebar-bg)] p-4">
+                        <span className="text-xs text-[var(--vscode-text-muted)] uppercase tracking-wider mb-3">Search</span>
+                        <input
+                            type="text"
+                            placeholder="Search files..."
+                            className="w-full bg-[var(--vscode-bg)] border border-[var(--vscode-border)] text-[var(--vscode-text)] text-xs rounded px-3 py-2 outline-none focus:border-[var(--vscode-blue)]"
+                        />
+                        <p className="text-xs text-[var(--vscode-text-muted)] mt-4">Type to search across files in the workspace.</p>
+                    </div>
+                );
+            case "settings":
+                return (
+                    <div className="h-full flex flex-col bg-[var(--vscode-sidebar-bg)] p-4">
+                        <span className="text-xs text-[var(--vscode-text-muted)] uppercase tracking-wider mb-3">Settings</span>
+                        <div className="space-y-3 text-xs text-[var(--vscode-text)]">
+                            <div className="flex items-center justify-between">
+                                <span>Mode</span>
+                                <span className="text-[var(--vscode-text-muted)] uppercase">{mode}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span>Status</span>
+                                <span className={status === "running" ? "text-emerald-400" : "text-rose-400"}>{status}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span>Sandbox</span>
+                                <span className="text-[var(--vscode-text-muted)]">E2B Cloud</span>
+                            </div>
+                        </div>
+                    </div>
+                );
+            default:
+                return null;
+        }
+    };
+
+    return (
+        <div className="flex-1 flex flex-col overflow-hidden">
+            <div ref={containerRef} className="flex-1 flex overflow-hidden">
+                {/* Activity Bar */}
+                <ActivityBar activeView={sidebarView} onViewChange={setSidebarView} />
+
+                {/* Sidebar */}
+                <div style={{ width: explorerWidth, minWidth: 180 }} className="shrink-0">
+                    {renderSidebar()}
                 </div>
 
+                {/* Sidebar resize handle */}
                 <div
-                    className="h-1 bg-zinc-800 hover:bg-blue-500/50 cursor-row-resize transition-colors shrink-0"
-                    onMouseDown={startHorizontalDrag}
+                    className="w-1 bg-[var(--vscode-border)] hover:bg-[var(--vscode-blue)] cursor-col-resize transition-colors shrink-0"
+                    onMouseDown={startVerticalDrag}
                 />
 
-                <div style={{ height: terminalHeight, minHeight: 120 }} className="shrink-0">
-                    <IDETerminal sessionId={sessionId} wsBase={wsBase} />
+                {/* Main editor + terminal area */}
+                <div className="flex-1 flex flex-col min-w-0">
+                    <div className="flex-1 min-h-0">
+                        <CodeEditor
+                            sessionId={sessionId}
+                            apiBase={apiBase}
+                            filePath={selectedFile}
+                            openTabs={openTabs}
+                            setOpenTabs={setOpenTabs}
+                            activeTab={activeTab}
+                            setActiveTab={setActiveTab}
+                            highlightRequest={highlightRequest}
+                        />
+                    </div>
+
+                    {/* Terminal resize handle */}
+                    <div
+                        className="h-1 bg-[var(--vscode-border)] hover:bg-[var(--vscode-blue)] cursor-row-resize transition-colors shrink-0"
+                        onMouseDown={startHorizontalDrag}
+                    />
+
+                    <div style={{ height: terminalHeight, minHeight: 120 }} className="shrink-0">
+                        <IDETerminal sessionId={sessionId} wsBase={wsBase} />
+                    </div>
                 </div>
+
+                {/* Agent panel (right side, when not in sidebar) */}
+                {sidebarView !== "agent" && (
+                    <>
+                        <div
+                            className="w-1 bg-[var(--vscode-border)] hover:bg-[var(--vscode-blue)] cursor-col-resize transition-colors shrink-0"
+                            onMouseDown={startAgentDrag}
+                        />
+                        <div style={{ width: agentWidth, minWidth: 200 }} className="shrink-0">
+                            <AgentPanel
+                                sessionId={sessionId}
+                                wsBase={wsBase}
+                                onHighlightRequest={handleHighlightRequest}
+                            />
+                        </div>
+                    </>
+                )}
             </div>
 
-            <div
-                className="w-1 bg-zinc-800 hover:bg-blue-500/50 cursor-col-resize transition-colors shrink-0"
-                onMouseDown={startAgentDrag}
+            {/* Status Bar */}
+            <IDEStatusBar
+                mode={mode}
+                status={status}
+                activeFile={activeTab}
             />
-
-            <div style={{ width: agentWidth, minWidth: 200 }} className="shrink-0">
-                <AgentPanel
-                    sessionId={sessionId}
-                    wsBase={wsBase}
-                    onHighlightRequest={handleHighlightRequest}
-                />
-            </div>
         </div>
     );
 }

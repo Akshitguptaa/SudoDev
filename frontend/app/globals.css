@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* VS Code color tokens */
+:root {
+  --vscode-bg: #1e1e1e;
+  --vscode-sidebar-bg: #252526;
+  --vscode-activitybar-bg: #333333;
+  --vscode-tab-active-bg: #1e1e1e;
+  --vscode-tab-inactive-bg: #2d2d2d;
+  --vscode-statusbar-bg: #007acc;
+  --vscode-blue: #0078d4;
+  --vscode-border: #474747;
+  --vscode-text: #d4d4d4;
+  --vscode-text-muted: #858585;
+}
+
 body {
   background-color: #09090b;
   background-image: radial-gradient(#27272a 1px, transparent 1px);

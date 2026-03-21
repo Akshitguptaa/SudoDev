@@ -12,3 +12,10 @@ uvloop==0.22.1
 websockets==15.0.1
 wheel==0.45.1
 requests>=2.31.0
+e2b-code-interpreter>=1.0.0
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+aiosqlite>=0.20.0
+celery>=5.3.0
+redis>=5.0.0
+honcho>=1.1.0

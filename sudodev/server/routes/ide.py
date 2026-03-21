@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import threading
+import json
 from datetime import datetime
 from typing import Optional
 
@@ -152,35 +153,44 @@ async def terminal_websocket(websocket: WebSocket, session_id: str):
     logger.info(f"Terminal WebSocket connected for session {session_id}")
 
     try:
-        exec_id, sock = sandbox.create_exec_shell()
+        terminal_id, terminal = sandbox.create_exec_shell()
 
-        # Get the raw socket for reading
-        raw_socket = sock._sock
-
-        async def docker_to_ws():
+        async def e2b_to_ws():
+            """Forward E2B terminal output to WebSocket."""
             loop = asyncio.get_event_loop()
             try:
                 while True:
-                    data = await loop.run_in_executor(None, raw_socket.recv, 4096)
-                    if not data:
-                        break
-                    await websocket.send_bytes(data)
+                    data = await loop.run_in_executor(None, lambda: terminal.read(timeout=1))
+                    if data:
+                        await websocket.send_text(data)
             except Exception as e:
-                logger.debug(f"docker_to_ws ended: {e}")
+                logger.debug(f"e2b_to_ws ended: {e}")
 
-        async def ws_to_docker():
-            loop = asyncio.get_event_loop()
+        async def ws_to_e2b():
+            """Forward WebSocket input to E2B terminal."""
             try:
                 while True:
-                    data = await websocket.receive_bytes()
+                    raw = await websocket.receive()
                     sandbox.touch()
-                    await loop.run_in_executor(None, raw_socket.sendall, data)
+
+                    # Phase 6: Handle ping/pong keep-alive
+                    if "text" in raw:
+                        try:
+                            msg = json.loads(raw["text"])
+                            if msg.get("type") == "ping":
+                                await websocket.send_json({"type": "pong"})
+                                continue
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                        terminal.send_data(raw["text"])
+                    elif "bytes" in raw:
+                        terminal.send_data(raw["bytes"].decode("utf-8", errors="replace"))
             except WebSocketDisconnect:
                 logger.info(f"Terminal WebSocket disconnected for session {session_id}")
             except Exception as e:
-                logger.debug(f"ws_to_docker ended: {e}")
+                logger.debug(f"ws_to_e2b ended: {e}")
 
-        await asyncio.gather(docker_to_ws(), ws_to_docker())
+        await asyncio.gather(e2b_to_ws(), ws_to_e2b())
 
     except Exception as e:
         logger.error(f"Terminal WebSocket error: {e}")

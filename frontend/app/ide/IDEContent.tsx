@@ -6,9 +6,10 @@ import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { IDEHeader, IDELayout } from "@/components/ide";
 
-const API_BASE = typeof window !== 'undefined'
-    ? `http://${window.location.hostname}:8000`
-    : 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL
+    ?? (typeof window !== 'undefined'
+        ? `http://${window.location.hostname}:8000`
+        : 'http://localhost:8000');
 const WS_BASE = API_BASE.replace(/^http/, "ws");
 
 interface SessionInfo {
@@ -125,6 +126,8 @@ export default function IDEContent() {
                 sessionId={sessionId!}
                 apiBase={API_BASE}
                 wsBase={WS_BASE}
+                mode={sessionInfo.mode}
+                status={sessionInfo.status}
             />
         </div>
     );

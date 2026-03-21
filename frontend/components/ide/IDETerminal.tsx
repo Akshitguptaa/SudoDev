@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { Terminal as TerminalIcon } from "lucide-react";
 
 const XTERM_STYLES = `
@@ -100,18 +100,36 @@ export default function IDETerminal({ sessionId, wsBase }: IDETerminalProps) {
             ws.binaryType = "arraybuffer";
 
             ws.onopen = () => {
-                term.writeln("\x1b[1;34m● Connected to container terminal\x1b[0m\r\n");
+                term.writeln("\x1b[1;34m● Connected to E2B sandbox terminal\x1b[0m\r\n");
+
+                // Phase 6: WebSocket keep-alive ping every 30s
+                const pingInterval = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: "ping" }));
+                    }
+                }, 30_000);
+                (ws as any)._pingInterval = pingInterval;
             };
 
             ws.onmessage = (event) => {
                 if (event.data instanceof ArrayBuffer) {
                     term.write(new Uint8Array(event.data));
                 } else {
+                    // Filter out pong keep-alive responses
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.type === "pong") return;
+                    } catch {
+                        // Not JSON, treat as terminal data
+                    }
                     term.write(event.data);
                 }
             };
 
             ws.onclose = () => {
+                if ((ws as any)._pingInterval) {
+                    clearInterval((ws as any)._pingInterval);
+                }
                 term.writeln("\r\n\x1b[1;31m● Terminal disconnected\x1b[0m");
             };
 
