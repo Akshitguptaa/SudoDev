@@ -1,10 +1,6 @@
-import docker
-import tarfile
-import io
 import os
 import time
-import threading
-import asyncio
+from e2b_code_interpreter import Sandbox as E2BSandboxSDK
 from sudodev.core.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -13,110 +9,54 @@ logger = setup_logger(__name__)
 class IDESandbox:
     """
     Interactive sandbox for Web IDE sessions.
-    Keeps a Docker container alive for interactive file browsing,
-    editing, and terminal access.
+    Uses E2B cloud microVMs instead of local Docker containers.
     """
 
     def __init__(self, mode: str, instance_id: str = None,
                  github_url: str = None, branch: str = "main"):
-        self.client = docker.from_env()
         self.mode = mode
         self.instance_id = instance_id
         self.github_url = github_url
         self.branch = branch
-        self.container = None
-        self.image_name = None
+        self.sandbox = None
+        self.template_id = os.getenv("E2B_TEMPLATE_ID", "base")
+        self.api_key = os.getenv("E2B_API_KEY")
         self.created_at = time.time()
         self.last_activity = time.time()
-        self._pty_exec = None
-
-    def _find_swebench_image(self, instance_id: str) -> str:
-        """Find SWE-bench Docker image by instance ID."""
-        try:
-            images = self.client.images.list()
-            issue_part = instance_id.split("__")[-1] if "__" in instance_id else instance_id
-
-            for img in images:
-                for tag in img.tags:
-                    if issue_part in tag and "sweb.eval" in tag:
-                        logger.info(f"Found image for {instance_id}: {tag}")
-                        return tag
-
-            logger.warning(f"Image not found for {instance_id}, using default format")
-            return f"sweb.eval.x86_64.{instance_id}"
-        except Exception as e:
-            logger.error(f"Error searching for image: {e}")
-            return f"sweb.eval.x86_64.{instance_id}"
-
-    def _build_github_image(self) -> str:
-        """Build a Docker image for a GitHub repository."""
-        parts = self.github_url.rstrip('/').split('/')
-        repo_name = parts[-1].replace('.git', '')
-        owner = parts[-2]
-        image_name = f"sudodev-ide-{owner}-{repo_name}:latest".lower()
-
-        # Check if image already exists
-        try:
-            self.client.images.get(image_name)
-            logger.info(f"Using existing image: {image_name}")
-            return image_name
-        except docker.errors.ImageNotFound:
-            pass
-
-        dockerfile_content = f"""
-FROM python:3.12-slim
-
-RUN apt-get update && apt-get install -y \\
-    git \\
-    build-essential \\
-    curl \\
-    && rm -rf /var/lib/apt/lists/*
-
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
-    && apt-get install -y nodejs \\
-    && rm -rf /var/lib/apt/lists/* \\
-    || echo "Node.js install skipped"
-
-WORKDIR /testbed
-
-RUN git clone --depth 1 --branch {self.branch} {self.github_url} /testbed
-
-RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt 2>&1 || true; fi
-RUN if [ -f setup.py ]; then pip install --no-cache-dir -e . 2>&1 || true; fi
-RUN if [ -f pyproject.toml ]; then pip install --no-cache-dir -e . 2>&1 || true; fi
-RUN if [ -f package.json ]; then npm install 2>&1 || true; fi
-
-CMD ["/bin/bash"]
-"""
-        logger.info(f"Building Docker image {image_name}...")
-        image, build_logs = self.client.images.build(
-            fileobj=io.BytesIO(dockerfile_content.encode()),
-            tag=image_name,
-            rm=True
-        )
-        logger.info(f"Successfully built image: {image_name}")
-        return image_name
 
     def start(self):
-        if self.mode == "swebench":
-            self.image_name = self._find_swebench_image(self.instance_id)
-        elif self.mode == "github":
-            self.image_name = self._build_github_image()
-        else:
-            raise ValueError(f"Unknown mode: {self.mode}")
-
-        logger.info(f"Starting IDE container from {self.image_name}...")
-        self.container = self.client.containers.run(
-            self.image_name,
-            command="tail -f /dev/null",
-            detach=True,
-            working_dir="/testbed",
-            user="root",
-            stdin_open=True,
-            tty=True,
+        logger.info(f"Starting E2B IDE sandbox (mode={self.mode})...")
+        self.sandbox = E2BSandboxSDK(
+            template=self.template_id,
+            api_key=self.api_key,
         )
-        logger.info(f"IDE container started (ID: {self.container.short_id})")
-        time.sleep(2)
+        logger.info(f"E2B IDE sandbox started (ID: {self.sandbox.sandbox_id})")
+
+        # Set up the working environment
+        self.sandbox.commands.run("mkdir -p /testbed")
+
+        if self.mode == "github" and self.github_url:
+            logger.info(f"Cloning {self.github_url} (branch: {self.branch})...")
+            clone_result = self.sandbox.commands.run(
+                f"git clone --depth 1 --branch {self.branch} {self.github_url} /testbed",
+                timeout=120,
+            )
+            if clone_result.exit_code != 0:
+                logger.error(f"Clone failed: {clone_result.stderr}")
+                raise RuntimeError(f"Failed to clone repo: {clone_result.stderr}")
+            logger.info("Repository cloned successfully")
+
+            # Install dependencies
+            self.sandbox.commands.run(
+                "cd /testbed && "
+                "if [ -f requirements.txt ]; then pip install -r requirements.txt 2>&1 || true; fi && "
+                "if [ -f setup.py ]; then pip install -e . 2>&1 || true; fi && "
+                "if [ -f pyproject.toml ]; then pip install -e . 2>&1 || true; fi && "
+                "if [ -f package.json ]; then npm install 2>&1 || true; fi",
+                timeout=180,
+            )
+            logger.info("Dependencies installed")
+
         self.last_activity = time.time()
         return True
 
@@ -127,8 +67,8 @@ CMD ["/bin/bash"]
         return (time.time() - self.last_activity) > timeout_seconds
 
     def list_files(self, path: str = "/testbed") -> list:
-        if not self.container:
-            raise RuntimeError("Container is not running.")
+        if not self.sandbox:
+            raise RuntimeError("Sandbox is not running.")
 
         self.touch()
         exit_code, output = self._exec(f"ls -la --group-directories-first {path}")
@@ -158,103 +98,76 @@ CMD ["/bin/bash"]
         return entries
 
     def read_file(self, filepath: str) -> str:
-        if not self.container:
-            raise RuntimeError("Container is not running.")
+        if not self.sandbox:
+            raise RuntimeError("Sandbox is not running.")
 
         self.touch()
         if not filepath.startswith("/"):
             filepath = f"/testbed/{filepath}"
 
         try:
-            bits, _ = self.container.get_archive(filepath)
-            file_obj = io.BytesIO()
-            for chunk in bits:
-                file_obj.write(chunk)
-            file_obj.seek(0)
-
-            with tarfile.open(fileobj=file_obj) as tar:
-                member = tar.next()
-                f = tar.extractfile(member)
-                return f.read().decode('utf-8')
+            content = self.sandbox.files.read(filepath)
+            return content
         except Exception as e:
             logger.warning(f"Read file failed for {filepath}: {e}")
             return None
 
     def write_file(self, filepath: str, content: str):
-        if not self.container:
-            raise RuntimeError("Container is not running.")
+        if not self.sandbox:
+            raise RuntimeError("Sandbox is not running.")
 
         self.touch()
         if not filepath.startswith("/"):
             filepath = f"/testbed/{filepath}"
 
-        # Split into directory and filename
-        dir_path = os.path.dirname(filepath)
-        filename = os.path.basename(filepath)
-
-        tar_stream = io.BytesIO()
-        with tarfile.open(fileobj=tar_stream, mode='w') as tar:
-            data = content.encode('utf-8')
-            info = tarfile.TarInfo(name=filename)
-            info.size = len(data)
-            tar.addfile(info, io.BytesIO(data))
-
-        tar_stream.seek(0)
-        self.container.put_archive(path=dir_path, data=tar_stream)
+        self.sandbox.files.write(filepath, content)
         logger.info(f"Wrote file: {filepath}")
 
     def run_command(self, cmd: str, timeout: int = 60):
-        if not self.container:
-            raise RuntimeError("Container is not running.")
+        if not self.sandbox:
+            raise RuntimeError("Sandbox is not running.")
 
         self.touch()
         try:
-            exec_result = self.container.exec_run(
-                ["/bin/bash", "-c", f"source ~/.bashrc 2>/dev/null; {cmd}"],
-                workdir="/testbed"
+            result = self.sandbox.commands.run(
+                cmd,
+                timeout=timeout,
             )
-            output = exec_result.output.decode('utf-8', errors='replace')
-            return exec_result.exit_code, output
+            stdout = result.stdout or ""
+            stderr = result.stderr or ""
+            output = stdout + stderr
+            return result.exit_code, output
         except Exception as e:
             return -1, str(e)
 
     def _exec(self, cmd: str):
-        exec_result = self.container.exec_run(
-            ["/bin/bash", "-c", cmd],
-            workdir="/testbed"
-        )
-        output = exec_result.output.decode('utf-8', errors='replace')
-        return exec_result.exit_code, output
+        result = self.sandbox.commands.run(cmd)
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        return result.exit_code, stdout + stderr
 
     def create_exec_shell(self):
-        if not self.container:
-            raise RuntimeError("Container is not running.")
+        """
+        Create an interactive terminal session via E2B.
+        Returns a tuple of (terminal_id, terminal) for WebSocket bridging.
+        """
+        if not self.sandbox:
+            raise RuntimeError("Sandbox is not running.")
 
         self.touch()
-        # Use the Docker API to create an exec instance with PTY
-        exec_instance = self.client.api.exec_create(
-            self.container.id,
-            cmd="/bin/bash",
-            stdin=True,
-            tty=True,
-            stdout=True,
-            stderr=True,
-            workdir="/testbed",
+        terminal = self.sandbox.terminals.start(
+            cols=120,
+            rows=40,
+            cwd="/testbed",
         )
-        sock = self.client.api.exec_start(
-            exec_instance['Id'],
-            socket=True,
-            tty=True,
-        )
-        return exec_instance['Id'], sock
+        return terminal.terminal_id, terminal
 
     def cleanup(self):
-        if self.container:
+        if self.sandbox:
             try:
-                self.container.stop(timeout=5)
-                self.container.remove()
-                logger.info(f"IDE container cleaned up: {self.container.short_id}")
+                self.sandbox.kill()
+                logger.info("E2B IDE sandbox cleaned up")
             except Exception as e:
                 logger.warning(f"Cleanup error: {e}")
             finally:
-                self.container = None
+                self.sandbox = None

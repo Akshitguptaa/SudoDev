@@ -1,0 +1,3 @@
+[template]
+dockerfile = "containers/e2b.Dockerfile"
+start_cmd = "/bin/bash"

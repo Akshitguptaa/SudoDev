@@ -5,15 +5,31 @@ from sudodev.core.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+# Helicone proxy base URLs for common providers
+HELICONE_GROQ_BASE = "https://groq.helicone.ai"
+HELICONE_OPENAI_BASE = "https://oai.helicone.ai/v1"
+
+
+def _helicone_headers() -> dict:
+    """Build Helicone auth headers if API key is configured."""
+    key = os.getenv("HELICONE_API_KEY")
+    if key:
+        return {"Helicone-Auth": f"Bearer {key}"}
+    return {}
+
 
 class LLMClient:
     def __init__(self):
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
-            raise ValueError("environment variable not set")
+            raise ValueError("GEMINI_API_KEY environment variable not set")
 
         self.client = genai.Client(api_key=api_key)
         self.model_name = "gemini-2.0-flash"
+
+        helicone_key = os.getenv("HELICONE_API_KEY")
+        if helicone_key:
+            logger.info("Helicone observability enabled")
 
     def get_completion(self, system_prompt: str, user_prompt: str, temperature: float = 0.2, max_tokens: int = 8192, conversation_history: list = None) -> str:
         try:

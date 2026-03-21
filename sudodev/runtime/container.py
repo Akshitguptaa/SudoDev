@@ -1,97 +1,77 @@
-import docker
-import tarfile
-import io
-import time
+import os
+from e2b_code_interpreter import Sandbox as E2BSandboxSDK
 from sudodev.core.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+
 class Sandbox:
     def __init__(self, instance_id: str):
-        self.client = docker.from_env()
         self.instance_id = instance_id
-        self.image_name = self._find_image_name(instance_id)
-        self.container = None
-
-    def _find_image_name(self, instance_id):
-        try:
-            images = self.client.images.list()
-            issue_part = instance_id.split("__")[-1] if "__" in instance_id else instance_id
-            
-            for img in images:
-                for tag in img.tags:
-                    if issue_part in tag and "sweb.eval" in tag:
-                        logger.info(f"Found image for {instance_id}: {tag}")
-                        return tag
-            
-            logger.warning(f"Image not found for {instance_id}, using default format")
-            return f"sweb.eval.x86_64.{instance_id}"
-        except Exception as e:
-            logger.error(f"Error searching for image: {e}")
-            return f"sweb.eval.x86_64.{instance_id}"
+        self.template_id = os.getenv("E2B_TEMPLATE_ID", "base")
+        self.api_key = os.getenv("E2B_API_KEY")
+        self.sandbox = None
 
     def start(self):
         try:
-            logger.info(f"Attempting to start sandbox for {self.image_name}...")
-            self.container = self.client.containers.run(
-                self.image_name,
-                command="tail -f /dev/null",
-                detach=True,
-                working_dir="/testbed",
-                user="root"
+            logger.info(f"Starting E2B sandbox for {self.instance_id}...")
+            self.sandbox = E2BSandboxSDK(
+                template=self.template_id,
+                api_key=self.api_key,
             )
-            logger.info(f"Sandbox started (ID: {self.container.short_id})")
-            time.sleep(2)
-        except docker.errors.ImageNotFound:
-            logger.error(f"Docker image '{self.image_name}' not found.")
+            logger.info(f"E2B sandbox started (ID: {self.sandbox.sandbox_id})")
+
+            # Set up testbed directory
+            self.sandbox.commands.run("mkdir -p /testbed")
+        except Exception as e:
+            logger.error(f"Failed to start E2B sandbox: {e}")
             raise
 
     def run_command(self, cmd: str, timeout: int = 60):
-        if not self.container:
-            raise RuntimeError("Container is not running.")
+        if not self.sandbox:
+            raise RuntimeError("Sandbox is not running.")
 
         try:
-            exec_result = self.container.exec_run(
-                ["/bin/bash", "-c", f"source ~/.bashrc 2>/dev/null; {cmd}"],
-                workdir="/testbed"
+            result = self.sandbox.commands.run(
+                cmd,
+                timeout=timeout,
             )
-            output = exec_result.output.decode('utf-8', errors='replace')
-            return exec_result.exit_code, output
+            stdout = result.stdout or ""
+            stderr = result.stderr or ""
+            output = stdout + stderr
+            return result.exit_code, output
         except Exception as e:
             return -1, str(e)
 
     def write_file(self, filepath: str, content: str):
-        tar_stream = io.BytesIO()
-        with tarfile.open(fileobj=tar_stream, mode='w') as tar:
-            data = content.encode('utf-8')
-            info = tarfile.TarInfo(name=filepath)
-            info.size = len(data)
-            tar.addfile(info, io.BytesIO(data))
-        
-        tar_stream.seek(0)
-        self.container.put_archive(path="/testbed", data=tar_stream)
+        if not self.sandbox:
+            raise RuntimeError("Sandbox is not running.")
 
-    def read_file(self, filepath: str) -> str:
         if not filepath.startswith("/"):
             filepath = f"/testbed/{filepath}"
-            
+
+        self.sandbox.files.write(filepath, content)
+
+    def read_file(self, filepath: str) -> str:
+        if not self.sandbox:
+            raise RuntimeError("Sandbox is not running.")
+
+        if not filepath.startswith("/"):
+            filepath = f"/testbed/{filepath}"
+
         try:
-            bits, _ = self.container.get_archive(filepath)
-            file_obj = io.BytesIO()
-            for chunk in bits:
-                file_obj.write(chunk)
-            file_obj.seek(0)
-            
-            with tarfile.open(fileobj=file_obj) as tar:
-                member = tar.next()
-                f = tar.extractfile(member)
-                return f.read().decode('utf-8')
+            content = self.sandbox.files.read(filepath)
+            return content
         except Exception as e:
             logger.warning(f"Read file failed for {filepath}: {e}")
             return None
 
     def cleanup(self):
-        if self.container:
-            self.container.stop()
-            self.container.remove()
-            logger.info("Sandbox container cleaned up.")
+        if self.sandbox:
+            try:
+                self.sandbox.kill()
+                logger.info("E2B sandbox cleaned up.")
+            except Exception as e:
+                logger.warning(f"E2B cleanup error: {e}")
+            finally:
+                self.sandbox = None
